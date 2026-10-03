@@ -2175,7 +2175,9 @@ bFSaid:
 
 @checkRecognisedWordCount:
 
-    cpx WORDS_COUNTER
+    txa
+    lsr
+    cmp _numInputWords
     bcc @checkWordMatch
     jmp @incrementByUnusedWordsFalse
 

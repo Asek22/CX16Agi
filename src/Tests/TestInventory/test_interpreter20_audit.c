@@ -149,6 +149,19 @@ static void saidScript(void)
     executeLogic(&logics[250], 250);
     auditCheck(var[250] == 77 && flag[4], "REST-OF-LINE SAID REJECTED MATCH OR SKIPPED WRONG BYTECODE");
     auditCheck(RAM_BANK == caller, "SAID SCRIPT LOST CALLER BANK");
+    /* A stale second word must not satisfy a test beyond the current input. */
+    script[2] = 3;
+    script[5] = 0x21; script[6] = 0x43;
+    script[7] = 0x0f; script[8] = 0x27;
+    script[9] = 255; script[10] = 3; script[11] = 0;
+    script[12] = 3; script[13] = 250; script[14] = 77; script[15] = 0;
+    file.codeSize = 16;
+    b5SetLogicFile(&file, 250);
+    memCpyBanked(file.logicCode, script, bank, sizeof(script));
+    numInputWords = 1;
+    flag[2] = TRUE; flag[4] = FALSE; var[250] = 0;
+    executeLogic(&logics[250], 250);
+    auditCheck(!var[250] && !flag[4], "SAID MATCHED STALE WORDS PAST CURRENT INPUT COUNT");
     b5SetLogicEntry(&saved, 250);
     auditCheck(b10BankedDealloc(file.logicCode, bank), "SAID SCRIPT LEAKED BYTECODE BUFFER");
 }
