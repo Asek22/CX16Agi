@@ -1,7 +1,33 @@
 #include "audit.h"
 #include "../../helpers.h"
 #include "../../memoryManager.h"
+#include "../../view.h"
 #include <string.h>
+
+#pragma wrapped-call (push, trampoline, SPRITE_METADATA_BANK)
+extern void bESetViewMetadata(View* view, ViewTable* table, byte viewNum, byte tableNum, byte slot);
+extern void bEResetViewTableMetadata(void);
+#pragma wrapped-call (pop)
+
+static void metadataStrideCase(void)
+{
+    View view;
+    ViewTable table;
+    ViewTableMetadata metadata;
+    VeraSpriteAddress* pointers[2];
+    memset(&view, 0, sizeof(view));
+    memset(&table, 0, sizeof(table));
+    view.numberOfLoops = 2;
+    view.maxVeraSlots = 4;
+    view.maxCels = 64;
+    bEResetViewTableMetadata();
+    bESetViewMetadata(&view, &table, 250, 0, 0);
+    memCpyBanked((byte*)&metadata, (byte*)viewTableMetadata, SPRITE_METADATA_BANK, sizeof(metadata));
+    memCpyBanked((byte*)pointers, (byte*)metadata.loopsVeraAddressesPointers, metadata.viewTableMetadataBank, sizeof(pointers));
+    auditCheck(pointers[1] - pointers[0] == 256, "split cel metadata stride wrapped at 256 addresses");
+    auditCheck(metadata.backBuffers - metadata.veraAddresses == 512, "split cel metadata backbuffer overlaps cel addresses");
+    bEResetViewTableMetadata();
+}
 
 static void allocationOwnershipCase(void)
 {
@@ -28,4 +54,5 @@ void resource20AuditCases(void)
     auditCheck(!strcmp(formatted, "0:bank:321:af"), "banked format ignored format string or variadic arguments");
     auditCheck(length == 13, "banked format returned wrong output length");
     auditCheck(RAM_BANK == callerBank, "banked format changed caller bank");
+    metadataStrideCase();
 }

@@ -1049,7 +1049,7 @@ void bEResetSpritesUpdatedBuffer()
 void bESetViewMetadata(View* localView, ViewTable* viewTable, byte viewNum, byte viewTabNo, byte viewMetadataSlot)
 {
 	byte i;
-	byte maxVeraAddresses;
+	unsigned int maxVeraAddresses;
 	ViewTableMetadata metadata;
 	int numberLoopVeraAddressPointers;
 	int numberVeraAddresses;
