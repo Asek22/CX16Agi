@@ -414,7 +414,6 @@ extern byte b3PaletteNumber;
 void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, byte paletteNumber, byte boxWidth, boolean wrap)
 {
 	int i;
-	char terminator = 0;
 	size_t messageSize = strLenBanked(message, messageBank) + 1;
 	long displayAddressCopyPaletteTo;
 	byte textWidth = boxWidth;
@@ -440,7 +439,7 @@ void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, by
 #endif
 		if (messageSize > maxMessageSize)
 		{
-			memCpyBanked((byte*)message + maxMessageSize - 1, (byte*)&terminator, messageBank, 1);
+			messageSize = maxMessageSize;
 		}
 
 #ifdef VERBOSE_DISPLAY_TEXT
@@ -452,6 +451,7 @@ void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, by
 		{
 			memCpyBankedBetween((byte*)b3TextBuffer1, TEXT_CODE_BANK, (byte*)message, messageBank, messageSize);
 		}
+		b3TextBuffer1[messageSize - 1] = '\0';
 
 		if (messageSize - 1 > TILE_LAYER_WIDTH / 2)
 		{

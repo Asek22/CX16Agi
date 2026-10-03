@@ -97,6 +97,29 @@ static void explicitNewlines(void)
     auditCheck(width == 5, "text wrap ignored final or explicit line width");
 }
 
+static void oversizedText(void)
+{
+    byte bank, value, originalGuard, sourceValue, guardValue;
+    byte block[100];
+    unsigned int offset;
+    byte* source = b10BankedAlloc(2200, &bank);
+    memset(block, 'A', sizeof(block));
+    for (offset = 0; offset < 2100; offset += sizeof(block))
+        memCpyBanked(source + offset, block, bank, sizeof(block));
+    value = 0;
+    memCpyBanked(source + 2100, &value, bank, 1);
+    memCpyBanked(&originalGuard, (byte*)b3TextBuffer2 + TEXTBUFFER_SIZE, TEXT_CODE_BANK, 1);
+    value = 0x5a;
+    memCpyBanked((byte*)b3TextBuffer2 + TEXTBUFFER_SIZE, &value, TEXT_CODE_BANK, 1);
+    b3DisplayMessageBox((char*)source, bank, 1, 0, 1, 0, FALSE);
+    memCpyBanked(&sourceValue, source + TEXTBUFFER_SIZE * 2 - 1, bank, 1);
+    memCpyBanked(&guardValue, (byte*)b3TextBuffer2 + TEXTBUFFER_SIZE, TEXT_CODE_BANK, 1);
+    memCpyBanked((byte*)b3TextBuffer2 + TEXTBUFFER_SIZE, &originalGuard, TEXT_CODE_BANK, 1);
+    b10BankedDealloc(source, bank);
+    auditCheck(sourceValue == 'A', "long text display modified its banked source resource");
+    auditCheck(guardValue == 0x5a, "long text display overflowed both text buffers");
+}
+
 void auditIrq20(void)
 {
     stoppedSound();
@@ -104,5 +127,6 @@ void auditIrq20(void)
     boundedInput();
     invalidControllerKey();
     explicitNewlines();
+    oversizedText();
     auditOutput("IRQ20 AUDIT PASS\n");
 }
