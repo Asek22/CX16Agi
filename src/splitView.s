@@ -14,7 +14,7 @@ SPLITVIEW_INC = 1
 .import _b5Divide
 
 .segment "BANKRAM0E"
-bESplitAddressesBuffer: .res 32
+bESplitAddressesBuffer: .res 64
 
 SPLIT_CEL_WIDTH = ZP_TMP_2
 SPLIT_CEL_HEIGHT = ZP_TMP_2 + 1
@@ -34,7 +34,7 @@ ACCUMULATED_SIZE = ZP_TMP_5 ; Reusing a ZP that is finished with when this one i
 STACK_ZP = ZP_TMP_6 ; Reusing a ZP that is finished with when this one is used
 DBL_SEGMENTS = ZP_TMP_2 ; Reusing a ZP that is finished with when this one is used
 
-SIZES = GOLDEN_RAM_WORK_AREA + 50 ;Stores the sizes of the various segments, the fifty is just arbitrary; all it has to be is a number that is big enough to avoid clashing with the addresses
+SIZES = GOLDEN_RAM_WORK_AREA + 64 ;Stores the sizes of the various segments, the fifty is just arbitrary; all it has to be is a number that is big enough to avoid clashing with the addresses
 
 .macro PARTITION_MEMORY
 .local @endDivideSegments
@@ -70,8 +70,9 @@ bra @createSegmentPointersLoop
 @endDivideSegments:
 .endmacro
 
-MAX_SPRITES_ROW_OR_COLUMN_SIZE = 4
-POINTER_TO_SPLIT_DATA_SIZE = MAX_SPRITES_ROW_OR_COLUMN_SIZE * MAX_SPRITES_ROW_OR_COLUMN_SIZE * 2
+MAX_SPLIT_COLUMNS = 8
+MAX_SPLIT_ROWS = 4
+POINTER_TO_SPLIT_DATA_SIZE = MAX_SPLIT_COLUMNS * MAX_SPLIT_ROWS * 2
 .macro PREPARE_BUFFER_SPLIT_CEL
 stz SPLIT_BUFFER_STATUS + 3
 
@@ -111,12 +112,17 @@ stx CEL_STRUCT_POINTER + 1
 
 GET_STRUCT_16_STORED_OFFSET _offsetOfBmp, CEL_STRUCT_POINTER, CEL_DATA
 GET_STRUCT_8_STORED_OFFSET _offsetOfCelWidth, CEL_STRUCT_POINTER, SPLIT_CEL_WIDTH
-lda SPLIT_CEL_WIDTH
-asl
-sta SPLIT_CEL_WIDTH
+
 
 GET_STRUCT_8_STORED_OFFSET _offsetOfCelHeight, CEL_STRUCT_POINTER, SPLIT_CEL_HEIGHT
 GET_STRUCT_8_STORED_OFFSET _offsetOfBmpBank, CEL_STRUCT_POINTER, CEL_DATA_BANK
+lda SPLIT_CEL_WIDTH
+beq @invalidDimensions
+lda SPLIT_CEL_HEIGHT
+bne @validDimensions
+@invalidDimensions:
+jmp bEAbortSplit
+@validDimensions:
 
 lda #< SPLIT_BUFFER_SIZE 
 ldx #> SPLIT_BUFFER_SIZE 
@@ -125,29 +131,14 @@ stx NO_BYTES_SIZE + 1
 
 
 ; 2. Divide the memory by the number of segments
-lda SPLIT_CEL_WIDTH ;Divide width by 64 to know how many segments across we need
-cmp #64
-bcc @widthLessThan64
+lda SPLIT_CEL_WIDTH ;64 VERA pixels span32 AGI pixels. Preserve the carry.
 clc
-adc #63 ; Adding 63 to the width will ensure we round up when we divide by 64. This is an optimisation trick that saves us calling the C float division function
-tay ; May be higher than 255 because we are adding the 63, but when we divide it will go away again. 
-lda #$0
-adc #$0
-
-clc
-lsr;Divide the high byte, we only need to do this once has the max number is 318
-
-tya ;Bring the low byte back, we can lose the high byte because after the shift it will always be zero
-ror; Divide by 64 If the number is greater than 255 we will expect a roll over from the high byte once, but only once  
+adc #31
+ror
 lsr
 lsr
 lsr
 lsr
-lsr
-bra @loadWidth
-
-@widthLessThan64:
-lda #$1 ;If width is less than 64 we only need one segment
 
 @loadWidth:
 ldx #$0; High byte is always zero
@@ -161,7 +152,7 @@ cmp #64
 bcc @heightLessThan64
 clc
 adc #63 ; Adding 63 to the height will ensure we round up when we divide by 64
-lsr ;To do: cater for number being temporarily higher than 255 like height 
+ror ; Carry is the ninth bit of height+63; retain it in the quotient.
 lsr
 lsr
 lsr
@@ -268,6 +259,18 @@ ldx #$0
 jsr _memsetBanked
 
 TRAMPOLINE #SPLIT_BUFFER_BANK, _bCSplitCel
+cmp #0
+bne @splitReady
+; Partition start pointers are still on the hardware stack. Retire all of them.
+lda NO_SEGMENTS
+asl
+tax
+@unwindFailedSplit:
+pla
+dex
+bne @unwindFailedSplit
+jmp bEAbortSplit
+@splitReady:
 
 ;6 Determine how much dynamic memory needs to be allocated to permanently store the data, we can't just copy the data from the buffer because there are huge gaps. Then copy to the allocated memory
 ;Important to note while reading. 
@@ -433,15 +436,22 @@ jsr _memCpyBanked
 
 bra @storeFinalResultLoop
 @endStoreFinalResultLoop:
-
 @end:
+rts
+bEAbortSplit:
+lda #0
+ldx #0
+SET_STRUCT_16_STORED_OFFSET_VALUE_IN_REG _offsetOfSplitCelPointers, CEL_STRUCT_POINTER
+SET_STRUCT_8_STORED_OFFSET_VALUE_IN_REG _offsetOfSplitSegments, CEL_STRUCT_POINTER
+SET_STRUCT_8_STORED_OFFSET_VALUE_IN_REG _offsetOfSplitCelBank, CEL_STRUCT_POINTER
 rts
 .endif
 
 .segment "BANKRAM0C"
 SPLIT_BUFFER_SIZE = 4000
 bCSplitBuffer: .res SPLIT_BUFFER_SIZE
-bCSplitBufferSegments: .res 32
+bCSplitBufferSegments: .res POINTER_TO_SPLIT_DATA_SIZE
+bCSplitBufferSegmentEnds: .res POINTER_TO_SPLIT_DATA_SIZE
 
 ;Still uses Uses ZP_TMP_14 as temp
 WIDTH_SEG_COUNTER = ZP_TMP_16 ;Counter for which width segment we are currently using
@@ -453,7 +463,19 @@ PIXEL_AMOUNT = ZP_TMP_19 ;How many pixels was the byte trying to draw
 ;Uses ZP_TMP_14 and ZP_TMP_20 as tmp
 ROWS_SO_FAR = ZP_TMP_21 ;How many rows have been processed so far
 
+SPLIT_WRITE_OFFSET = ZP_TMP_23
+SPLIT_FAILED = ZP_TMP_23 + 1
+.macro CHECK_SPLIT_WRITE
+.local @fits
+jsr bCCheckSegmentWrite
+bcc @fits
+lda #1
+sta SPLIT_FAILED
+jmp bCSplitFailure
+@fits:
+.endmacro
 .macro INCREMENT_SEGMENT ;When we have finished with a segment we need to add to it the number of the times we wrote to it, as we will return to it the next line. Also we should pad it with one zero
+CHECK_SPLIT_WRITE
 iny ;We need to add a single zero on the end, and this is the easiest way to do it
 tya
 tax ;Where we are in the current segment in preserved in x
@@ -486,6 +508,23 @@ _bCSplitCel: ;Must be called by bESplitCel, which does all of the prepartion, as
 lda debugCounter
 .endif
 
+; Fixed exclusive ends survive changes to the current segment pointers.
+stz SPLIT_FAILED
+lda NO_SEGMENTS
+asl
+tax
+@initializeEnds:
+dex
+dex
+clc
+lda bCSplitBufferSegments,x
+adc SEGMENT_SIZE
+sta bCSplitBufferSegmentEnds,x
+lda bCSplitBufferSegments+1,x
+adc SEGMENT_SIZE+1
+sta bCSplitBufferSegmentEnds+1,x
+cpx #0
+bne @initializeEnds
 ;Initialize data
 stz WIDTH_SEG_COUNTER 
 stz HEIGHT_SEG_COUNTER
@@ -529,8 +568,11 @@ sta PIXEL_AMOUNT
 clc
 adc PIXELS_WIDTH_COUNTED_SO_FAR ;We will go into the next width segment if we have counted 32 pixels
 cmp #64 / 2 ;Divide by two because in Sierra AGI pixels are double width, so 32 agi pixels fit in 64
-beq @widthEqualToSegment
-bcc @widthWithinSegment
+bne @notExactWidth
+jmp @widthEqualToSegment
+@notExactWidth:
+bcs @widthOverflow
+jmp @widthWithinSegment
 
 @widthOverflow:
 sec
@@ -550,6 +592,7 @@ lda ZP_TMP_20 ; Bring the amount under back into a
 clc
 adc ZP_TMP_14 + 1 ;Add the colour to the amount under
 
+CHECK_SPLIT_WRITE
 sta (SEGMENT_POINTER), y ;Store amount under and colour in the segment
 iny
 
@@ -564,6 +607,7 @@ sta PIXELS_WIDTH_COUNTED_SO_FAR ;Reset the amount counted so far
 clc
 adc ZP_TMP_14 + 1 ;Add the colour to the amount over
 
+CHECK_SPLIT_WRITE
 sta (SEGMENT_POINTER) ;y will always be zero here, so we can just store the amount over in the segment
 iny
 
@@ -573,6 +617,7 @@ jmp @widthLoop
 @widthWithinSegment: ;We still have room to store this value in the segment
 sta PIXELS_WIDTH_COUNTED_SO_FAR ;Add the number of pixels to the number of pixels counted so far
 txa ;Bring back the whole byte
+CHECK_SPLIT_WRITE
 sta (SEGMENT_POINTER), y ;Store it
 iny ;Increment for the next byte
 jmp @widthLoop
@@ -581,6 +626,7 @@ jmp @widthLoop
 lda #$0 
 sta PIXELS_WIDTH_COUNTED_SO_FAR ;Reset the amount counted so far
 txa ;Bring back the whole byte
+CHECK_SPLIT_WRITE
 sta (SEGMENT_POINTER), y ;Store the value
 iny
 
@@ -589,9 +635,16 @@ GO_TO_NEXT_SEGMENT
 jmp @widthLoop
 
 @checkHeightLoopCondition: ;Getting ready for the next line
+lda WIDTH_SEG_COUNTER
+cmp SEGMENTS_ACROSS
+bcs @finishRow
 INCREMENT_SEGMENT ;Add a zero on the end of the line
-
+@finishRow:
 jsr bCPadUnusedSegmentsForLine ; Pad unused segments for this row with zeros
+lda SPLIT_FAILED
+beq @rowFits
+jmp bCSplitFailure
+@rowFits:
 
 inc ROWS_SO_FAR ;Stop when we have processed all of the rows
 lda ROWS_SO_FAR
@@ -620,6 +673,10 @@ lda debugCounter
 .endif
 jmp @heightLoop
 @end:
+lda #1
+rts
+bCSplitFailure:
+lda #0
 rts
 .ifdef DEBUG_SPLIT
 debugCounter: .word $0
@@ -635,24 +692,16 @@ bne @checkIfHeightIs0
 ;stp
 .endif
 
-@checkIfHeightIs0: ;If height height is zero instead of multiplying the segments will just be the width seg counter
-lda HEIGHT_SEG_COUNTER
-bne @checkIfHeightIs1
-bra @addWidthCounter
-
-@checkIfHeightIs1: ;If then the segment will be the width seg counter + the height seg counter
-cmp #$1
-bne @addWidthCounter
-lda SPLIT_CEL_WIDTH
-bra @addWidthCounter
-
-@multiply: ;If height is greater than 1 then we need to multiply the height seg counter by the entire width eg. the old formula (y * width) + x
-ldx #$0
-jsr popax
-lda HEIGHT_SEG_COUNTER
-ldx #$0
-TRAMPOLINE #HELPERS_BANK, _b5Multiply
-tay
+@checkIfHeightIs0:
+; Row index is a segment count, never the pixel width. At most three adds.
+lda #0
+ldx HEIGHT_SEG_COUNTER
+beq @addWidthCounter
+@rowOffset:
+clc
+adc SEGMENTS_ACROSS
+dex
+bne @rowOffset
 
 @addWidthCounter:
 clc ;Add the width seg counter to the result of the multiplication, or just the height seg counter if height is 0 or 1
@@ -701,21 +750,36 @@ dec
 cmp WIDTH_SEG_COUNTER
 bcc @end ;If the width seg counter is greater than or equal to the number of segments across we have used all of the segments for this row
 
-lda WIDTH_SEG_COUNTER
-asl ;Double the width seg counter to get the index of the segment pointer we need to pad
-tay
-
-lda #$1 ;Increment the segment by 1
-clc
-adc bCSplitBufferSegments, y
-sta bCSplitBufferSegments, y
-iny
-lda #$0
-adc bCSplitBufferSegments, y
-sta bCSplitBufferSegments, y
+jsr _bCSetSegmentPointer
+ldy #0
+INCREMENT_SEGMENT
 
 bra @padUnusedSegmentLoop
 
 @end:
 rts
 
+; Preserve the encoded byte and offset; carry reports an exclusive-end violation.
+bCCheckSegmentWrite:
+pha
+phx
+phy
+sty SPLIT_WRITE_OFFSET
+lda SEGMENT_POINTER_COUNTER
+asl
+tay
+clc
+lda SEGMENT_POINTER
+adc SPLIT_WRITE_OFFSET
+tax
+lda SEGMENT_POINTER+1
+adc #0
+cmp bCSplitBufferSegmentEnds+1,y
+bne @checked
+ txa
+cmp bCSplitBufferSegmentEnds,y
+@checked:
+ply
+plx
+pla
+rts
