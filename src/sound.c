@@ -735,7 +735,8 @@ void bBStopSound()
 	{
 		bBPsgClear();       // Clear PSG sound generator state
 		memset(bBIsPlaying, FALSE, NO_CHANNELS); // Mark all channels as not playing
-		flag[soundEndFlag] = TRUE;
+		bBChannelsPlaying = 0;
+		flag[bBEndSoundFlag] = TRUE;
 	}
 	REENABLE_INTERRUPTS(); // Re-enable interrupts after sound stop
 }
