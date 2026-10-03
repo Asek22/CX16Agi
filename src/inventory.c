@@ -46,24 +46,29 @@ static boolean named(const char* text)
         if (fold(objectName[i]) != fold(text[i])) return FALSE;
     return objectName[i] == 0;
 }
+static boolean readName(const objectType* object)
+{
+    unsigned available;
+    byte length;
+    objectName[0] = 0;
+    /* Names are confined to the OBJECT bank, including unterminated names
+     * at its upper edge. Fetch the bounded span with one bank switch. */
+    if ((unsigned)object->name < BANK_MIN || (unsigned)object->name > BANK_MAX) return FALSE;
+    available = BANK_MAX - (unsigned)object->name + 1;
+    length = available < sizeof(objectName)-1 ? available : sizeof(objectName)-1;
+    memCpyBanked((byte*)objectName, (byte*)object->name, OBJECT_BANK, length);
+    objectName[length] = 0;
+    return TRUE;
+}
 static boolean getName(byte id)
 {
     int count;
     objectType object;
-    byte i;
     memCpyBanked((byte*)&count, (byte*)&bFNumObjects, OBJECT_BANK, sizeof(count));
     objectName[0] = 0;
     if (id == 255 || count < 0 || id >= count) return FALSE;
     bDGetObject(id, &object);
-    if (!object.name) return FALSE;
-    /* Never dereference a banked OBJECT name while another bank is mapped. */
-    if ((unsigned)object.name < BANK_MIN || (unsigned)object.name > BANK_MAX) return FALSE;
-    for (i = 0; i < sizeof(objectName) - 1 && (unsigned)(object.name+i) <= BANK_MAX; ++i) {
-        memCpyBanked((byte*)&objectName[i], (byte*)object.name+i, OBJECT_BANK, 1);
-        if (!objectName[i]) return TRUE;
-    }
-    objectName[i] = 0;
-    return TRUE;
+    return readName(&object);
 }
 boolean inventoryInspectOpen(byte id)
 {
@@ -161,7 +166,7 @@ byte inventoryShow(boolean select)
     if (count > MAX_OBJECTS) count = MAX_OBJECTS;
     for (i = 0; i < count; ++i) {
         bDGetObject(i, &object);
-        if (object.roomNum == 255 && getName(i) && objectName[0]) carried[carriedCount++] = i;
+        if (object.roomNum == 255 && readName(&object) && objectName[0]) carried[carriedCount++] = i;
     }
     for (;;) {
         first = (selected / 14)*14;

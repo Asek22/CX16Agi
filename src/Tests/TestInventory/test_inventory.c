@@ -106,6 +106,43 @@ static void checkArt(byte object, unsigned char expected, byte row, byte column)
     inventoryInspectClose();
     checkClosed();
 }
+static unsigned long cycles(void)
+{
+    byte a = *(volatile byte*)0x9fb8;
+    byte b = *(volatile byte*)0x9fb9;
+    byte c = *(volatile byte*)0x9fba;
+    byte d = *(volatile byte*)0x9fbb;
+    return ((unsigned long)d << 24) | ((unsigned long)c << 16) | ((unsigned)b << 8) | a;
+}
+static void number(unsigned long value)
+{
+    char digits[11];
+    byte n = 0;
+    do { digits[n++] = 48 + value % 10; value /= 10; } while (value);
+    while (n) *(volatile byte*)0x9fbb = digits[--n];
+}
+static void fullInventoryPerformance(void)
+{
+    objectType object;
+    int count = MAX_OBJECTS;
+    unsigned i;
+    unsigned long start, elapsed;
+    makeObjects();
+    bDGetObject(0, &object);
+    for (i=0; i<MAX_OBJECTS; ++i) bDSetObject((byte)i, &object);
+    memCpyBanked((byte*)&bFNumObjects, (byte*)&count, OBJECT_BANK, sizeof(count));
+    start = cycles();
+    for (i=0; i<8; ++i) {
+        testPutKey(KEY_ESC);
+        check(inventoryShow(FALSE) == 255, "full inventory cancel failed");
+    }
+    elapsed = (cycles()-start)/8;
+    output("FULL INVENTORY OPEN/CLOSE CYCLES: "); number(elapsed); output("; ");
+    /* Original per-character reads: 2,393,786 cycles per open/close.
+     * Keep at least a 25% reduction, allowing normal IRQ timing variation. */
+    check(elapsed < 1800000UL, "full inventory name reads regressed above CPU budget");
+    checkBackground();
+}
 int main(void)
 {
     byte i;
@@ -151,6 +188,7 @@ int main(void)
     b4Status();
     check(var[25] == 255 && !inventoryActive, "empty inventory selected an object");
     checkClosed(); checkBackground();
+    fullInventoryPerformance();
     output("INVENTORY PASS");
     testExit();
     return 0;
