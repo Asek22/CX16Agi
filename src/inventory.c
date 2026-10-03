@@ -78,7 +78,7 @@ boolean inventoryInspectOpen(byte id)
     if (!getName(id)) return FALSE;
     if (named("dagger")) art = 0;
     else if (named("carrot")) art = 1;
-    else if (named("bucket")) art = 2;
+    else if (named("bucket") || named("water bucket") || named("full bucket")) art = 2;
     else return FALSE;
     inspectAddress = bDFindFreeVramBlock(SPR_SIZE_64, SPR_SIZE_64);
     if (!inspectAddress) return FALSE;

@@ -264,6 +264,30 @@ static void transferStateCases(void)
     check(!(testStatus() & 4), "transfer left interrupts disabled");
     checkBackground();
 }
+static void kq1ObjectCases(void)
+{
+    static byte water[] = {119,97,116,101,114,32,98,117,99,107,101,116,0};
+    static byte full[] = {102,117,108,108,32,98,117,99,107,101,116,0};
+    objectType object;
+    int count = 13;
+    byte i;
+    makeObjects();
+    for (i=0; i<13; ++i) { object.roomNum=0; object.name=0; bDSetObject(i, &object); }
+    object.roomNum=255; object.name=(char*)bDObjData; bDSetObject(1, &object);
+    object.name=(char*)bDObjData+7; bDSetObject(3, &object);
+    memCpyBanked(bDObjData+32, water, OBJECT_BANK, sizeof(water));
+    object.name=(char*)bDObjData+32; bDSetObject(11, &object);
+    memCpyBanked(bDObjData+48, full, OBJECT_BANK, sizeof(full));
+    object.name=(char*)bDObjData+48; bDSetObject(12, &object);
+    memCpyBanked((byte*)&bFNumObjects, (byte*)&count, OBJECT_BANK, sizeof(count));
+    output("KQ1 OBJECT NAME CASES; ");
+    checkArt(1, 0xff, 10, 15); checkArt(3, 0x66, 12, 15);
+    checkArt(11, 0x77, 20, 15); checkArt(12, 0x77, 20, 15);
+    testPutKey(KEY_DOWN); testPutKey(KEY_DOWN); testPutKey(KEY_DOWN); testPutKey(KEY_ENTER);
+    check(inventoryShow(TRUE) == 12, "KQ1 full bucket selection lost object number");
+    checkBackground();
+    makeObjects();
+}
 int main(void)
 {
     byte i;
@@ -314,6 +338,7 @@ int main(void)
     nameAndPagingCases();
     allocationFailureCases();
     transferStateCases();
+    kq1ObjectCases();
     output("INVENTORY PASS");
     testExit();
     return 0;
