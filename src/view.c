@@ -48,7 +48,7 @@ byte priorityBase = DEFAULT_PRIORITY_BASE;
 #define NO_PRIORITIES (MAX_SPRITE_PRIORITY - MIN_SPRITE_PRIORITY)
 
 #define BYTES_PER_SPRITE_UPDATE 7
-#define SPRITE_UPDATED_BUFFER_SIZE  VIEW_TABLE_SIZE * BYTES_PER_SPRITE_UPDATE * 2
+#define SPRITE_UPDATED_BUFFER_SIZE 256
 extern byte bESpritesUpdatedBuffer[SPRITE_UPDATED_BUFFER_SIZE];
 
 //These views are believed to have sprite memory allocated. It is possible for the value to be falsely true, but not falsely false. 
@@ -1426,6 +1426,7 @@ boolean agiBlit(byte entryNum, boolean disableInterupts)
 	byte isAnimated = FALSE;
 	SpriteAllocationSize allocationWidth, allocationHeight;
 	byte combinedSpriteAllocationSize;
+	unsigned int updateOffset;
 	
 // if(entryNum != 0)
 // {
@@ -1452,6 +1453,14 @@ boolean agiBlit(byte entryNum, boolean disableInterupts)
 	getLoadedView(&localView, viewNum);
 	getLoadedLoop(&localView, &localLoop, localViewTab.currentLoop);
 	getLoadedCel(&localLoop, &localCel, localViewTab.currentCel);
+	updateOffset = bESpritesUpdatedBufferPointer - bESpritesUpdatedBuffer;
+	if (localCel.splitSegments > MAX_SPRITES_SLOTS_PER_VIEW_TAB ||
+		updateOffset > SPRITE_UPDATED_BUFFER_SIZE - 2 ||
+		updateOffset + (localCel.splitSegments ? localCel.splitSegments : 1) * BYTES_PER_SPRITE_UPDATE + 2 > SPRITE_UPDATED_BUFFER_SIZE)
+	{
+		RAM_BANK = previousBank;
+		return FALSE;
+	}
 
 	if (localView.maxVeraSlots > 1)
 	{

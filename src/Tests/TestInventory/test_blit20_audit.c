@@ -12,6 +12,7 @@ extern boolean agiBlit(byte entry, boolean disableInterrupts);
 extern void setLoadedLoop(View* view, Loop* loop, byte number);
 extern void setLoadedCel(Loop* loop, Cel* cel, byte number);
 extern byte bESpritesUpdatedBuffer[];
+extern byte* bESpritesUpdatedBufferPointer;
 extern void testDisableInterrupts(void), testEnableInterrupts(void);
 
 static void splitCallerCase(void)
@@ -52,6 +53,25 @@ static void splitCallerCase(void)
     auditCheck(returned.splitCelPointers!=0,"tall narrow cel was never split by production blit");
     auditCheck(updates[9]==updates[2] && updates[10]==updates[3],"vertical split moved its second segment horizontally");
     auditCheck(updates[11]==updates[4]+64,"vertical split left its second segment on the first row");
+    bEResetSpritesUpdatedBuffer();
+    testDisableInterrupts();
+    for(row=0;row<18;++row) auditCheck(agiBlit(0,FALSE),"room update buffer rejected its valid 36-record boundary");
+    auditCheck(!agiBlit(0,FALSE),"room update buffer accepted records beyond its physical capacity");
+    {
+        byte* pointer;
+        memCpyBanked((byte*)&pointer,(byte*)&bESpritesUpdatedBufferPointer,SPRITE_UPDATED_BANK,sizeof(pointer));
+        auditCheck(pointer==bESpritesUpdatedBuffer+252,"rejected room update changed its publication pointer");
+    }
+    testEnableInterrupts();
+    bEResetSpritesUpdatedBuffer();
+    cel.width=224; cel.height=1; cel.veraSlotsWidth=7; cel.veraSlotsHeight=1; cel.splitSegments=7;
+    cel.splitCelPointers=0; cel.splitCelBank=0;
+    setLoadedCel(&loop,&cel,0);
+    testDisableInterrupts();
+    auditCheck(!agiBlit(0,FALSE),"room blitter exceeded the object's reserved six sprite slots");
+    testEnableInterrupts();
+    /* Restore the owned split allocation before discarding the real view. */
+    setLoadedCel(&loop,&returned,0);
     bEResetViewTableMetadata(); b9DiscardView(248); bDResetSpriteMemoryManager();
 }
 
