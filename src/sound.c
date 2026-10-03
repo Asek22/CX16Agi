@@ -681,6 +681,7 @@ void bBPlaySound(byte soundNum, byte endSoundFlag)
 	if(!flag[9])
 	{
 		flag[endSoundFlag] = TRUE;
+		REENABLE_INTERRUPTS();
 		return;
 	}
 

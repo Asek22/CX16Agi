@@ -25,8 +25,26 @@ static void stoppedSound(void)
     auditCheck(count == 0, "explicit stop retained a playing channel count");
 }
 
+static byte interruptStatus;
+static void disabledSound(void)
+{
+    byte previousBank = RAM_BANK;
+    flag[9] = FALSE;
+    flag[42] = FALSE;
+    testEnableInterrupts();
+    bBPlaySound(255, 42);
+    asm("php");
+    asm("pla");
+    asm("sta %v", interruptStatus);
+    testEnableInterrupts();
+    auditCheck(!(interruptStatus & 4), "disabled sound left IRQs masked on early return");
+    auditCheck(flag[42], "disabled sound did not complete its requested flag");
+    auditCheck(RAM_BANK == previousBank, "disabled sound changed the caller bank");
+}
+
 void auditIrq20(void)
 {
     stoppedSound();
+    disabledSound();
     auditOutput("IRQ20 AUDIT PASS\n");
 }
