@@ -27,11 +27,11 @@ CONFIG  :=
 
 # Additional C compiler flags and options.
 # Default: none
-CFLAGS  = -O -Wc --disable-opt,OptPush1 -Wc --disable-opt,OptPush2 -Wc --disable-opt,OptPushPop1 -Wc --disable-opt,OptStore1 -Wc --disable-opt,OptStore2 -Wc --disable-opt,OptStore3 -Wc --disable-opt,OptStore4 -Wc --disable-opt,OptStore5 -Wc --disable-opt,OptStackOps -Wc --disable-opt,OptStackPtrOps -Wc --disable-opt,OptGotoSPAdj -Wc --disable-opt,OptUnusedStores -Wc --disable-opt,OptStoreLoad #These wc arguments are required because I have noticed the 3d effect is broken without them. Likely this happens because assembly function calls have arguments reordered
+CFLAGS  = -O -Wc --disable-opt,OptPush1 -Wc --disable-opt,OptPush2 -Wc --disable-opt,OptPushPop1 -Wc --disable-opt,OptStore1 -Wc --disable-opt,OptStore2 -Wc --disable-opt,OptStore3 -Wc --disable-opt,OptStore4 -Wc --disable-opt,OptStore5 -Wc --disable-opt,OptStackArith1 -Wc --disable-opt,OptStackArith2 -Wc --disable-opt,OptStackBitwise1 -Wc --disable-opt,OptStackBitwise2 -Wc --disable-opt,OptStackCmpOps1 -Wc --disable-opt,OptStackCmpOps2 -Wc --disable-opt,OptStackEqOps1 -Wc --disable-opt,OptStackEqOps2 -Wc --disable-opt,OptStackICmp1 -Wc --disable-opt,OptStackShifts -Wc --disable-opt,OptStackPtrOps -Wc --disable-opt,OptGotoSPAdj -Wc --disable-opt,OptUnusedStores -Wc --disable-opt,OptStoreLoad #These wc arguments are required because I have noticed the 3d effect is broken without them. Likely this happens because assembly function calls have arguments reordered
 
 # Additional assembler flags and options.
 # Default: none
-ASFLAGS =
+ASFLAGS = --cpu w65c02
 
 # Additional linker flags and options.
 # Default: none
@@ -307,7 +307,7 @@ $(TARGETOBJDIR)/%.o: %.a65 | $(TARGETOBJDIR)
 	$(CC) -O -t $(CC65TARGET) -c --create-dep $(@:.o=.d) $(ASFLAGS) -o $@ $<
 
 $(PROGRAM): $(CONFIG) $(OBJECTS) $(LIBS)
-	$(CC) -t $(CC65TARGET) $(LDFLAGS)  -o $@ $(patsubst %.cfg,-C %.cfg,$^) -C cx16-bank.cfg --mapfile "/home/alay/CLionProjects/CX16Agi/map.txt"
+	$(CC) -t $(CC65TARGET) $(LDFLAGS)  -o $@ $(patsubst %.cfg,-C %.cfg,$^) -C cx16-bank.cfg --mapfile "$(TARGETOBJDIR)/$(notdir $@).map"
 
 test: $(PROGRAM)
 	$(PREEMUCMD)
