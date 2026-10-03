@@ -1422,6 +1422,7 @@ boolean agiBlit(byte entryNum, boolean disableInterupts)
 	VeraSpriteAddress loopVeraAddress, tempVeraAddress; //Put out here so it can be accessed by inline assembly without going via a C variable
 	boolean isAllocated = FALSE;
 	byte splitCounter; //Store the SPLIT_COUNTER ZP in here as this makes it easier for C to access it 
+	byte splitColumn = 0, splitRowOffset = 0;
 	byte isAnimated = FALSE;
 	SpriteAllocationSize allocationWidth, allocationHeight;
 	byte combinedSpriteAllocationSize;
@@ -1454,23 +1455,20 @@ boolean agiBlit(byte entryNum, boolean disableInterupts)
 
 	if (localView.maxVeraSlots > 1)
 	{
-		i = 0;
-		getLoadedCel(&localLoop, &tempCel, i);
-
-#ifdef VERBOSE_SPLIT
-		printf("you are splitting view %d loop %d cel %d. the data is %p on bank %p. it's width doubled is %d\n", viewNum, localViewTab->currentLoop, localViewTab->currentCel, tempCel.bmp, tempCel.bitmapBank, tempCel.width * 2);
-#endif
-		do
+		for (i = 0; i < localLoop.numberOfCels; ++i)
 		{
-			if (!tempCel.splitCelPointers && (tempCel.veraSlotsWidth > 1 && tempCel.veraSlotsWidth > 1))
+			getLoadedCel(&localLoop, &tempCel, i);
+			if (!tempCel.splitCelPointers && (tempCel.veraSlotsWidth > 1 || tempCel.veraSlotsHeight > 1))
 			{
 				bESplitCel(&tempCel);
+				if (!tempCel.splitCelPointers || !tempCel.splitSegments)
+				{
+					RAM_BANK = previousBank;
+					return FALSE;
+				}
 				setLoadedCel(&localLoop, &tempCel, i);
 			}
-
-			getLoadedCel(&localLoop, &tempCel, ++i);
-
-		} while (i < localLoop.numberOfCels && (!tempCel.splitCelPointers || (tempCel.veraSlotsWidth == 1 && tempCel.veraSlotsWidth == 1))); //One we have seen the first one which is split then they all are
+		}
 
 		//printf("setting address %p. loop %d cel %d\n", &((Cel*)bEToBlitCelArray)[localViewTab->currentCel], localViewTab->currentLoop, localViewTab->currentCel);
 
@@ -1850,7 +1848,7 @@ moveXDueToFlipped:
 	asm("sta (%w),y", ZP_SPRITE_STORE_PTR);
 
 	//4 y low (y high is always zero)
-yPos: _assmByte = (byte)localViewTab.yPos;
+yPos: _assmByte = (byte)(localViewTab.yPos + splitRowOffset);
 	_assmByte2 = localCel.height - 1;
 
 	asm("ldy #$4");
@@ -1958,10 +1956,12 @@ celToVeraBackwards:
 updateBufferPointer:
 	bESpritesUpdatedBufferPointer += BYTES_PER_SPRITE_UPDATE;
 
-	asm("clc");
-	asm("lda #%w", SPR_SIZE_64 / 2);
-	asm("adc %w", SPLIT_OFFSET);
-	asm("sta %w", SPLIT_OFFSET);
+	if (++splitColumn == localCel.veraSlotsWidth)
+	{
+		splitColumn = 0;
+		splitRowOffset += SPR_SIZE_64;
+	}
+	*((byte*)SPLIT_OFFSET) = splitColumn * (SPR_SIZE_64 / 2);
 
 	asm("lda %w", SPLIT_COUNTER);
 	asm("cmp %w", NO_SPLIT_SEGMENTS);
