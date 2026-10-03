@@ -172,6 +172,27 @@ static void activeSoundDiscard(void)
     flag[9] = FALSE;
 }
 
+static void boxedTextBounds(void)
+{
+    byte bank, value, originalGuard, guard;
+    byte block[100];
+    unsigned int offset;
+    byte* source = b10BankedAlloc(1000, &bank);
+    memset(block, 'A', sizeof(block));
+    for (offset = 0; offset < 1000; offset += sizeof(block))
+        memCpyBanked(source + offset, block, bank, sizeof(block));
+    value = 0;
+    memCpyBanked(source + 999, &value, bank, 1);
+    memCpyBanked(&originalGuard, (byte*)b3TextBuffer2 + TEXTBUFFER_SIZE, TEXT_CODE_BANK, 1);
+    value = 0x5a;
+    memCpyBanked((byte*)b3TextBuffer2 + TEXTBUFFER_SIZE, &value, TEXT_CODE_BANK, 1);
+    b3DisplayMessageBox((char*)source, bank, 1, 0, 1, DEFAULT_BOX_WIDTH, FALSE);
+    memCpyBanked(&guard, (byte*)b3TextBuffer2 + TEXTBUFFER_SIZE, TEXT_CODE_BANK, 1);
+    memCpyBanked((byte*)b3TextBuffer2 + TEXTBUFFER_SIZE, &originalGuard, TEXT_CODE_BANK, 1);
+    b10BankedDealloc(source, bank);
+    auditCheck(guard == 0x5a, "boxed text border expansion overflowed its destination");
+}
+
 void auditIrq20(void)
 {
     stoppedSound();
@@ -181,5 +202,6 @@ void auditIrq20(void)
     explicitNewlines();
     oversizedText();
     activeSoundDiscard();
+    boxedTextBounds();
     auditOutput("IRQ20 AUDIT PASS\n");
 }

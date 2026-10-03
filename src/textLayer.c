@@ -336,6 +336,9 @@ void b3DrawBorder(byte boxWidth, size_t messageSize)
 
 	delimiter[0] = NEW_LINE;
 	delimiter[1] = '\0';
+	if (boxWidth < 2) boxWidth = 2;
+	if (boxWidth >= MAX_CHAR_ACROSS) boxWidth = MAX_CHAR_ACROSS - 1;
+	b3LastBoxLines = 4;
 
 	for (i = 0; i <= boxWidth; i++)
 	{
@@ -357,12 +360,15 @@ void b3DrawBorder(byte boxWidth, size_t messageSize)
 
 	charToReadNext = strtok(b3TextBuffer1, delimiter);
 
-	do
+	/* Reserve the two closing rows and terminator before adding a line. */
+	while (charToReadNext && b3LastBoxLines < TEXT_ROWS &&
+		currentCharToWrite + 3 * (boxWidth + 2) <= b3TextBuffer2 + TEXTBUFFER_SIZE)
 	{
 		leftBarPosition = currentCharToWrite;
 		*currentCharToWrite++ = LEFT_BORDER;
 
 		segmentLength = strlen(charToReadNext);
+		if (segmentLength > boxWidth - 1) segmentLength = boxWidth - 1;
 		memcpy(currentCharToWrite, charToReadNext, segmentLength);
 
 		currentCharToWrite += segmentLength;
@@ -376,8 +382,9 @@ void b3DrawBorder(byte boxWidth, size_t messageSize)
 
 		*currentCharToWrite++ = RIGHT_BORDER;
 		*currentCharToWrite++ = NEW_LINE;
+		b3LastBoxLines++;
 
-	} while (charToReadNext);
+	}
 
 
 	*currentCharToWrite++ = LEFT_BORDER;
