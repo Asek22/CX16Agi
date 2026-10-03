@@ -418,12 +418,13 @@ void b7LookupWords(char* inputLine)
 
 	// Re-copy original input (strtok inserted nulls into previous copy)
 	strcpy(userInput, inputLine);
+	b7StripExtraChars(userInput);
 
 	// Reset count of recognized words this turn
 	numInputWords = 0;
 
 	// Starting length value (will be updated per token)
-	stringLength = strlen(inputLine);
+	stringLength = strlen(userInput);
 
 	// Main loop: process tokens while we have some left and haven't failed
 	while (start <= end && allWordsFound)

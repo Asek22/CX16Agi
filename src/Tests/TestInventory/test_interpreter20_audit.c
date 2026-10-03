@@ -15,6 +15,38 @@ extern byte wordsPointersBank;
 extern word* synonymsList;
 extern byte synonymsListBank;
 extern byte allocationArray[];
+#pragma wrapped-call (push, trampoline, PARSER_BANK)
+extern void b7StripExtraChars(char* input);
+#pragma wrapped-call (pop)
+static void parserDictionary(void)
+{
+    byte* data;
+    byte* pointers;
+    byte* synonyms;
+    byte dataBank, pointersBank, synBank;
+    int count = 1, synonym = 777;
+    char input[41];
+    data = b10BankedAlloc(100, &dataBank);
+    pointers = b10BankedAlloc(100, &pointersBank);
+    synonyms = b10BankedAlloc(100, &synBank);
+    memCpyBanked(data, (byte*)"bee", dataBank, 4);
+    memCpyBanked(pointers, (byte*)&data, pointersBank, sizeof(data));
+    memCpyBanked(synonyms, (byte*)&synonym, synBank, sizeof(synonym));
+    memCpyBanked((byte*)&wordsData, (byte*)&data, WORD_BANK, sizeof(data));
+    memCpyBanked((byte*)&wordsDataBank, &dataBank, WORD_BANK, sizeof(dataBank));
+    memCpyBanked((byte*)&wordPointers, (byte*)&pointers, WORD_BANK, sizeof(pointers));
+    memCpyBanked((byte*)&wordsPointersBank, &pointersBank, WORD_BANK, sizeof(pointersBank));
+    memCpyBanked((byte*)&synonymsList, (byte*)&synonyms, WORD_BANK, sizeof(synonyms));
+    memCpyBanked((byte*)&synonymsListBank, &synBank, WORD_BANK, sizeof(synBank));
+    memCpyBanked((byte*)&numWords, (byte*)&count, WORD_BANK, sizeof(count));
+    memCpyBanked((byte*)wordsTextStart, (byte*)"bee", WORD_BANK, 3);
+    strcpy(input, "bee!");
+    var[9] = 0;
+    b7LookupWords(input);
+    auditCheck(numInputWords == 1 && inputWords[0] == synonym && !var[9],
+        "PARSER REINTRODUCED PUNCTUATION AFTER NORMALIZING INPUT");
+    b12DiscardWords();
+}
 #pragma wrapped-call (push, trampoline, VIEW_CODE_BANK_2)
 extern void bAFollowEgo(ViewTable* table);
 #pragma wrapped-call (pop)
@@ -150,4 +182,5 @@ void interpreter20AuditCases(void)
     saidScript();
     dictionaryLifetime();
     followCurrentView();
+    parserDictionary();
 }
