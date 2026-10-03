@@ -167,6 +167,7 @@ byte* b10TryBankedAlloc(int size, byte* bank)
 	byte i, j;
 	byte* result = 0;
 	byte* allocationByte = 0;
+	if (size <= 0) return 0;
 
 	for (i = 0; i < NO_SIZES && !result; i++)
 	{
@@ -223,20 +224,12 @@ extern long opCounter;
 boolean b10BankedDealloc(byte* ptr, byte bank)
 {
 	int i;
-	byte size = 0;
-	byte segment = 0;
+	unsigned int offset, segment;
 	byte result = FALSE;
 	MemoryArea memoryArea;
 	byte* allocationAddress;
 
-	for (i = NO_SIZES - 1; i >= 0 && !size; i--)
-	{
-		if (bank >= _memoryAreas[i].firstBank) {
-			size = i;
-		}
-	}
-
-	if (bank == 0 || ptr == 0)
+	if ((unsigned int)ptr < BANK_MIN || (unsigned int)ptr >= BANK_MIN + MEMORY_MANAGER_BANK_SIZE)
 	{
 #ifdef  VERBOSE
 		printf("Zero deallocation detected ptr %p bank %p on %lu \n", ptr, bank,  opCounter);
@@ -244,9 +237,17 @@ boolean b10BankedDealloc(byte* ptr, byte bank)
 		return FALSE;
 	}
 
-	memoryArea = _memoryAreas[size];
-
-	allocationAddress = memoryArea.start + ((ptr - &BANK_RAM[0]) / memoryArea.segmentSize) + ((bank - memoryArea.firstBank) * (memoryArea.noSegments / memoryArea.noBanks));
+	for (i = 0; i < NO_SIZES; ++i)
+	{
+		if (bank >= _memoryAreas[i].firstBank && bank - _memoryAreas[i].firstBank < _memoryAreas[i].noBanks) break;
+	}
+	if (i == NO_SIZES) return FALSE;
+	memoryArea = _memoryAreas[i];
+	offset = ptr - &BANK_RAM[0];
+	if (offset % memoryArea.segmentSize) return FALSE;
+	segment = offset / memoryArea.segmentSize + (bank - memoryArea.firstBank) * (memoryArea.noSegments / memoryArea.noBanks);
+	if (segment >= memoryArea.noSegments) return FALSE;
+	allocationAddress = memoryArea.start + segment;
 
 #ifdef VERBOSE
     printf("allocationAddressCalc: %p + ((%p - %p) / %d) + ((%p - %p) * (%d / %d) ) = %p\n", memoryArea.start, ptr, &BANK_RAM[0], memoryArea.segmentSize, bank, memoryArea.firstBank, memoryArea.noSegments, memoryArea.noBanks, allocationAddress);
@@ -285,7 +286,6 @@ void bInitMemoryMangerInit()
 	RAM_BANK = previousRamBank;
 }
 #pragma code-name (pop);
-
 
 
 
