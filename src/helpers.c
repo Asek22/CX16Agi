@@ -155,7 +155,7 @@ char* strcpyBanked(char* dest, const char* src, byte bank)
 
 	RAM_BANK = bank;
 
-	strcpy(dest, src);
+	result = strcpy(dest, src);
 
 	RAM_BANK = previousRamBank;
 

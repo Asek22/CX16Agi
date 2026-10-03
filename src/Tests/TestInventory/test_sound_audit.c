@@ -13,6 +13,22 @@ extern unsigned long totalSoundSize, totalBeats;
 #define CHANNEL_BUFFER_SIZE ((LOCAL_WORK_AREA_SIZE - 2) / 3)
 static byte channel[CHANNEL_BUFFER_SIZE + 2];
 
+static void stringReturnCase(void)
+{
+    static const byte text[]={98,97,110,107,101,100,0};
+    byte bank, previous;
+    byte* block;
+    char first[12], second[12];
+    block=b10BankedAlloc(sizeof(text),&bank);
+    memCpyBanked(block,(byte*)text,bank,sizeof(text));
+    previous=RAM_BANK;
+    auditCheck(strcpyBanked(first,(char*)block,bank)==first,"banked string copy returned wrong first destination");
+    auditCheck(!memcmp(first,text,sizeof(text)) && RAM_BANK==previous,"banked string copy changed contents or caller bank");
+    auditCheck(strcpyBanked(second,(char*)block,bank)==second,"banked string copy returned wrong second destination");
+    auditCheck(!memcmp(second,text,sizeof(text)) && RAM_BANK==previous,"banked string copy changed second contents or caller bank");
+    auditCheck(b10BankedDealloc(block,bank),"banked string allocation cleanup");
+}
+
 static void resizeReturnCase(void)
 {
     unsigned size=100;
@@ -145,6 +161,7 @@ static void whiteNoiseDurationCase(void)
 
 void soundAuditCases(void)
 {
+    stringReturnCase();
     resizeReturnCase();
     refillCase();
     growthCase();
