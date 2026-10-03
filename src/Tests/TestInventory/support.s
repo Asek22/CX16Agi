@@ -46,8 +46,9 @@ observeIrq:
     and #1
     beq @chain
     lda _inventoryActive
-    beq @chain
+    beq :+
     jsr feedKey
+:
     lda $9f25
     pha
     and #$fe
