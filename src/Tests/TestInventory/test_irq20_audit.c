@@ -4,6 +4,7 @@
 #include "../../textLayer.h"
 #include "../../parser.h"
 #include "../../menu.h"
+#include "../../inventory.h"
 
 extern boolean bBIsPlaying[4];
 extern SoundFile* bBLoadedSoundsPointer[];
@@ -160,7 +161,7 @@ static void activeSoundDiscard(void)
     auditCheck(completion, "discard did not complete the active sound flag");
     auditCheck(lookup == NULL, "discard retained the loaded sound table pointer");
     sound.soundResource = b10BankedAlloc(100, &bank);
-    auditCheck(sound.soundResource == retired, "discard did not release its banked sound allocation");
+    auditCheck(sound.soundResource == retired && bank == sound.soundBank, "discard did not release its banked sound allocation");
     memset(note, 0xff, sizeof(note));
     memCpyBanked(sound.soundResource, note, bank, sizeof(note));
     start = vSyncCounter;
@@ -193,6 +194,52 @@ static void boxedTextBounds(void)
     auditCheck(guard == 0x5a, "boxed text border expansion overflowed its destination");
 }
 
+extern int numOfMenus;
+extern MENU the_menu[], the_menuChildren[];
+extern byte bAMenuChildWidth[];
+extern void testPutKey(byte key);
+#pragma wrapped-call (push, trampoline, MENU_BANK)
+extern void bAInitMenuState(void), bAMenuChildInit(void);
+extern void bASetMenuChild(MENU* menu, byte menuNo);
+#pragma wrapped-call (pop)
+static void disabledMenuAction(void)
+{
+    MENU item;
+    byte width = 6, bits;
+    boolean savedModal = inventoryActive;
+    inventoryActive = TRUE;
+    b1InitControllers();
+    bAInitMenuState();
+    bAMenuChildInit();
+    item.text = "Menu";
+    item.controller = NOT_ASSOCIATED;
+    memCpyBanked((byte*)the_menu, (byte*)&item, MENU_BANK, sizeof(item));
+    item.text = NULL;
+    memCpyBanked((byte*)(the_menu + 1), (byte*)&item, MENU_BANK, sizeof(item));
+    numOfMenus = 1;
+    item.text = "Item";
+    item.controller = 17;
+    bASetMenuChild(&item, 0);
+    memCpyBanked(bAMenuChildWidth, &width, MENU_BANK, 1);
+    bASetMenuControllerEnabled(17, FALSE);
+    testPutKey(KEY_ENTER);
+    testPutKey(KEY_ESC);
+    bAShowMenu(TRUE);
+    memCpyBanked(&bits, b1ControllerBits + 2, CONTROLLER_BANK, 1);
+    numOfMenus = 0;
+    inventoryActive = savedModal;
+    auditCheck(!(bits & 2), "disabled menu ENTER still activated its controller");
+    inventoryActive = TRUE;
+    numOfMenus = 1;
+    bASetMenuControllerEnabled(17, TRUE);
+    testPutKey(KEY_ENTER);
+    bAShowMenu(TRUE);
+    memCpyBanked(&bits, b1ControllerBits + 2, CONTROLLER_BANK, 1);
+    numOfMenus = 0;
+    inventoryActive = savedModal;
+    auditCheck(bits & 2, "enabled menu ENTER no longer activated its controller");
+}
+
 void auditIrq20(void)
 {
     stoppedSound();
@@ -203,5 +250,6 @@ void auditIrq20(void)
     oversizedText();
     activeSoundDiscard();
     boxedTextBounds();
+    disabledMenuAction();
     auditOutput("IRQ20 AUDIT PASS\n");
 }

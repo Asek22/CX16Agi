@@ -246,7 +246,7 @@ void bAShowMenu(boolean shown)
 		{
 			controller = the_menuChildren[bAMenuSelected * MAX_MENU_CHILDREN + bAMenuChildSelected].controller;
 
-			if(controller != NOT_ASSOCIATED)
+			if(controller != NOT_ASSOCIATED && bAEnabledMenuControllers[controller])
 			{
 				b1SetController(controller);    // Activate associated controller/action
 			}
