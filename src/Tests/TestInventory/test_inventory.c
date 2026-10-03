@@ -12,6 +12,8 @@ extern void __fastcall__ testPoke(byte value, unsigned long address);
 extern byte bDObjData[];
 extern void testExit(void);
 extern void testPutKey(byte key);
+extern void testObserveIrq(void);
+extern unsigned testVisibleFrames;
 #pragma wrapped-call (push, trampoline, 6)
 extern void b6InitIrq(void);
 #pragma wrapped-call (pop)
@@ -116,6 +118,7 @@ int main(void)
     memCpyBanked(baselineAllocations, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(baselineAllocations));
     for (i=0; i<8; ++i) { mouseAttrs[i] = i == 6 ? 0 : i+32; testPoke(mouseAttrs[i], SPRITE_ATTRIBUTES_START+i); }
     b6InitIrq();
+    testObserveIrq();
     seedBackground();
     flag[13] = TRUE;
     testPutKey(KEY_DOWN);
@@ -128,8 +131,10 @@ int main(void)
     checkArt(2, 0x77, 20, 15);
     checkBackground();
     /* View consumes one close event and returns to the same highlighted item. */
+    testVisibleFrames = 0;
     testPutKey(KEY_DOWN); testPutKey('v'); testPutKey('x'); testPutKey(KEY_ENTER);
     b4Status();
+    check(testVisibleFrames != 0, "queued close erased artwork before any visible frame");
     check(var[25] == 1 && !inventoryActive, "view did not return to inventory selection");
     checkClosed(); checkBackground();
     bDGetObject(0, &object); object.name += 1; bDSetObject(0, &object);
