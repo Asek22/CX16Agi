@@ -214,7 +214,7 @@ void copyStringFromBanked(char* src, char* dest, int start, int chunk, byte sour
 	RAM_BANK = previousRamBank;
 }
 
-int sprintfBanked(const char* buffer, byte bank, char const* const format, ...) {
+int sprintfBanked(char* buffer, byte bank, char const* const format, ...) {
 	va_list list;
 	int result;
 	byte previousRamBank = RAM_BANK;
@@ -222,11 +222,12 @@ int sprintfBanked(const char* buffer, byte bank, char const* const format, ...) 
 	RAM_BANK = bank;
 
 	va_start(list, format);
-	result = sprintf(buffer, list);
+	result = vsprintf(buffer, format, list);
 
 	va_end(list);
 
 	RAM_BANK = previousRamBank;
+	return result;
 }
 
 size_t strLenBanked(char* string, int bank)
@@ -255,6 +256,5 @@ void b10GetLogicDirectory(AGIFilePosType* returnedLogicDirectory, AGIFilePosType
 	*returnedLogicDirectory = *logicDirectoryLocation;
 }
 #pragma code-name (pop)
-
 
 

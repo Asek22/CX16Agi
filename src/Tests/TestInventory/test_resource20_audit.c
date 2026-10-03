@@ -18,6 +18,14 @@ static void allocationOwnershipCase(void)
 
 void resource20AuditCases(void)
 {
+    char formatted[40];
+    int length;
+    byte callerBank;
     auditOutput("RESOURCE OWNERSHIP CASES; ");
     allocationOwnershipCase();
+    callerBank = RAM_BANK;
+    length = sprintfBanked(formatted, TINY_FIRST_BANK, "%u:%s:%u:%02x", 0u, "bank", 321u, 0xafu);
+    auditCheck(!strcmp(formatted, "0:bank:321:af"), "banked format ignored format string or variadic arguments");
+    auditCheck(length == 13, "banked format returned wrong output length");
+    auditCheck(RAM_BANK == callerBank, "banked format changed caller bank");
 }

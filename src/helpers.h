@@ -50,7 +50,7 @@ extern void memsetBanked(void* _Dst, int _Val, size_t _Size, byte bank);
 #define COPY_EVERYTHING 32767
 extern void copyStringFromBanked(char* src, char* dest, int start, int chunk, byte sourceBank, boolean convertFromAsciiByteToPetscii);
 
-extern int sprintfBanked(const char* buffer, byte bank, char const* const format, ...);
+extern int sprintfBanked(char* buffer, byte bank, char const* const format, ...);
 
 #pragma wrapped-call (push, trampoline, DIRECTORY_BANK)
 extern void b10GetLogicDirectory(AGIFilePosType* returnedLogicDirectory, AGIFilePosType* logicDirectoryLocation);
