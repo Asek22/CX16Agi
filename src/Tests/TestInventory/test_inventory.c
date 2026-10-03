@@ -13,6 +13,7 @@ extern byte bDObjData[];
 extern void testExit(void);
 extern void testPutKey(byte key);
 extern void testObserveIrq(void);
+extern void __fastcall__ testFeedKeys(const byte* keys);
 extern unsigned testVisibleFrames;
 #pragma wrapped-call (push, trampoline, 6)
 extern void b6InitIrq(void);
@@ -143,6 +144,38 @@ static void fullInventoryPerformance(void)
     check(elapsed < 1800000UL, "full inventory name reads regressed above CPU budget");
     checkBackground();
 }
+static void nameAndPagingCases(void)
+{
+    static byte keys[256];
+    static byte mixed[] = {68,97,71,103,69,114,0};
+    objectType object;
+    byte old, one = 88;
+    unsigned i;
+    /* fullInventoryPerformance has created 255 carried objects. */
+    for (i=0; i<254; ++i) keys[i] = KEY_DOWN;
+    keys[254] = KEY_ENTER; keys[255] = 0;
+    testFeedKeys(keys);
+    check(inventoryShow(TRUE) == 254, "last inventory page lost object 254");
+    keys[0]=KEY_UP; keys[1]=KEY_ENTER; keys[2]=0;
+    testFeedKeys(keys);
+    check(inventoryShow(TRUE) == 0, "up at first object wrapped selection");
+    checkBackground();
+    bDGetObject(0, &object);
+    memCpyBanked((byte*)object.name, mixed, OBJECT_BANK, sizeof(mixed));
+    checkArt(0, 0xff, 10, 15);
+    object.name = (char*)BANK_MAX;
+    memCpyBanked(&old, (byte*)BANK_MAX, OBJECT_BANK, 1);
+    memCpyBanked((byte*)BANK_MAX, &one, OBJECT_BANK, 1);
+    bDSetObject(0, &object);
+    check(!inventoryInspectOpen(0), "unterminated bank-edge name produced art");
+    memCpyBanked((byte*)BANK_MAX, &old, OBJECT_BANK, 1);
+    object.name = (char*)(BANK_MAX+1); bDSetObject(0, &object);
+    check(!inventoryInspectOpen(0), "name outside OBJECT bank accepted");
+    object.name = 0; bDSetObject(0, &object);
+    check(!inventoryInspectOpen(0), "null name accepted");
+    makeObjects();
+    checkClosed();
+}
 int main(void)
 {
     byte i;
@@ -189,6 +222,7 @@ int main(void)
     check(var[25] == 255 && !inventoryActive, "empty inventory selected an object");
     checkClosed(); checkBackground();
     fullInventoryPerformance();
+    nameAndPagingCases();
     output("INVENTORY PASS");
     testExit();
     return 0;

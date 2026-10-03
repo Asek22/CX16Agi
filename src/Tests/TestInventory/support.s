@@ -25,6 +25,8 @@ _testPoke:
 .bss
 savedIrq: .res 2
 _testVisibleFrames: .res 2
+feedActive: .res 1
+feedDelay: .res 1
 .code
 _testObserveIrq:
     php
@@ -45,6 +47,7 @@ observeIrq:
     beq @chain
     lda _inventoryActive
     beq @chain
+    jsr feedKey
     lda $9f25
     pha
     and #$fe
@@ -79,3 +82,39 @@ observeIrq:
     sta $9f25
 @chain:
     jmp (savedIrq)
+
+; Pace real KERNAL queue input so a long navigation script cannot overflow it.
+.export _testFeedKeys
+_testFeedKeys:
+    php
+    sei
+    sta feedLoad+1
+    stx feedLoad+2
+    lda #1
+    sta feedActive
+    stz feedDelay
+    plp
+    rts
+feedKey:
+    lda feedActive
+    beq feedKeyDone
+    lda feedDelay
+    beq feedKeyNext
+    dec feedDelay
+    rts
+feedKeyNext:
+feedLoad:
+    lda $ffff
+    beq feedKeyEnd
+    jsr $fec3
+    inc feedLoad+1
+    bne :+
+    inc feedLoad+2
+:
+    lda #7
+    sta feedDelay
+    rts
+feedKeyEnd:
+    stz feedActive
+feedKeyDone:
+    rts
