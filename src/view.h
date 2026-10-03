@@ -20,7 +20,7 @@
 #include "movement.h"
 
 #define MAX_JOINED_SPRITES 6
-#define MAX_SPRITES_ROW_OR_COLUMN_SIZE 4
+#define MAX_SPRITES_ROW_OR_COLUMN_SIZE 8
 #define PALETTE_NOT_SET 255
 
 extern byte* var;
@@ -102,4 +102,3 @@ extern byte priorityBase;
 
 
 #endif   /* _VIEW_H_ */
-

@@ -2312,7 +2312,7 @@ void setLoopData(AGIFile* tempAGI, View* localView, Loop* localLoop, byte* loopH
 }
 
 
-byte b9VeraSlotsForWidthOrHeight(byte widthOrHeight)
+byte b9VeraSlotsForWidthOrHeight(unsigned int widthOrHeight)
 {
 	byte i;
 
