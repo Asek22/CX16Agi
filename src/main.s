@@ -6,6 +6,7 @@
     .include "global.s"
     .include "graphicsAsm.s"
     .include "helpersAsm.s"
+    .include "inventoryTransfer.s"
     .include "splitView.s"
     .include "wordsAsm.s"
     .include "debug.s"

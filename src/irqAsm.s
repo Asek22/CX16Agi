@@ -9,6 +9,7 @@ IRQ_INC = 1
 
 .import _mainLoopCounter
 .import _menuDirty
+.import _inventoryActive
 
 .macro SEND_IRQ_COMMAND command, vSyncToCheck
 sei
@@ -246,6 +247,10 @@ jmp @defaultIqr
 lda #SOUND_BANK
 sta RAM_BANK
 jsr bBSoundHandler
+lda _inventoryActive
+beq :+
+jmp @vSyncCounter
+:
 
 @handleDisplayInputLine:
 lda #PARSER_BANK

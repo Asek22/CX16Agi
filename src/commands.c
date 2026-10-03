@@ -14,6 +14,7 @@
 #include <cx16.h>
 
 #include "commands.h"
+#include "inventory.h"
 #include "general.h"
 #include "logic.h"
 #include "memoryManager.h"
@@ -1844,10 +1845,7 @@ void b4Add_to_pic_v() // 7, 0xFE
 
 void b4Status() // 0, 0x00 
 {
-	/* Inventory */
-	// set text mode
-	// if flag 13 is set then allow selection and store selection in var[25]
-	var[25] = 255;
+	var[25] = inventoryShow(flag[13]);
 }
 
 //void b4Save_game() // 0, 0x00 
