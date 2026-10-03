@@ -39,6 +39,15 @@ stx ZP_WIDTH
 
 bEAllocateSpriteMemoryBulkAsm:
 
+; Four bytes per result in the 256-byte output; zero is not a batch.
+lda ZP_NUMBER_TO_ALLOCATE
+beq @invalidCount
+cmp #MAX_BULK_ALLOCATED_SIZE / 4 + 1
+bcc @validCount
+@invalidCount:
+lda #0
+rts
+@validCount:
 stz ZP_ARRAY_COUNTER
 
 @loop:
@@ -80,6 +89,29 @@ lda #$1
 rts
 
 @returnFail:
+; Failure owns every successful prefix span until it has been released.
+; The current block size remains in BLOCKS_TO_FIND across allocator calls.
+@rollback:
+ldy ZP_ARRAY_COUNTER
+beq @failed
+dey
+dey
+dey
+dey
+sty ZP_ARRAY_COUNTER
+lda _bEBulkAllocatedAddresses + 2,y
+sta sreg
+ldx _bEBulkAllocatedAddresses + 1,y
+lda _bEBulkAllocatedAddresses,y
+TRAMPOLINE #$D, bDDeleteAllocationAsmCall
+ldy ZP_ARRAY_COUNTER
+lda #0
+sta _bEBulkAllocatedAddresses,y
+sta _bEBulkAllocatedAddresses + 1,y
+sta _bEBulkAllocatedAddresses + 2,y
+sta _bEBulkAllocatedAddresses + 3,y
+bra @rollback
+@failed:
 lda #$0
 rts
 
