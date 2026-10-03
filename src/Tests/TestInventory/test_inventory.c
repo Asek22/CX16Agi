@@ -197,6 +197,7 @@ static void allocationFailureCases(void)
     /* The product must stay alive when the disposable panel cannot allocate. */
     testPutKey(KEY_ESC);
     check(inventoryShow(TRUE) == 255 && !inventoryActive, "exhausted save-under did not cancel safely");
+    check(cbm_k_getin() == KEY_ESC, "failed inventory consumed queued input");
     for (i=0; i<count; ++i) check(b10BankedDealloc(pointers[i], banks[i]), "fixture RAM release failed");
     checkBackground();
     count = 0;
@@ -210,6 +211,58 @@ static void allocationFailureCases(void)
     for (i=0; i<count; ++i) bDDeleteAllocation(sprites[i], SPR_SIZE_64, SPR_SIZE_64);
     checkClosed(); checkBackground();
     checkArt(0, 0xff, 10, 15);
+}
+extern unsigned long inventoryAddress;
+extern byte inventoryBuffer[], inventoryLength, inventoryWrite;
+extern void inventoryTransfer(void);
+extern void testDisableInterrupts(void);
+extern void testEnableInterrupts(void);
+extern byte testStatus(void);
+static void transferStateCases(void)
+{
+    static byte lengths[] = {0,1,7,8,9,31,32,71,72,73,79,80};
+    byte savedBank = RAM_BANK, i, n;
+    unsigned repeat;
+    unsigned long start, elapsed;
+    testDisableInterrupts();
+    RAM_BANK = 0x75;
+    for (n=0; n<sizeof(lengths); ++n) {
+        inventoryAddress = 0x14000;
+        inventoryLength = lengths[n]; inventoryWrite = TRUE;
+        for (i=0; i<inventoryLength; ++i) inventoryBuffer[i]=i^0x5a;
+        /* Configure both VERA ports and DCSEL independently of the transfer. */
+        *(volatile byte*)VERA_ctrl=4;
+        *(volatile byte*)VERA_addr_low=0x32;
+        *(volatile byte*)VERA_addr_high=0x54;
+        *(volatile byte*)VERA_addr_bank=0x41;
+        *(volatile byte*)VERA_ctrl=5;
+        *(volatile byte*)VERA_addr_low=0x45;
+        *(volatile byte*)VERA_addr_high=0x23;
+        *(volatile byte*)VERA_addr_bank=0x21;
+        inventoryTransfer();
+        check((testStatus() & 4) && RAM_BANK == 0x75, "transfer changed IRQ state or RAM bank");
+        check(*(volatile byte*)VERA_ctrl == 5, "transfer changed VERA control");
+        check(*(volatile byte*)VERA_addr_low == 0x45 && *(volatile byte*)VERA_addr_high == 0x23 && *(volatile byte*)VERA_addr_bank == 0x21, "transfer changed VERA port 1");
+        *(volatile byte*)VERA_ctrl=4;
+        check(*(volatile byte*)VERA_addr_low == 0x32 && *(volatile byte*)VERA_addr_high == 0x54 && *(volatile byte*)VERA_addr_bank == 0x41, "transfer changed VERA port 0");
+        memset(inventoryBuffer, 0, 80);
+        inventoryWrite = FALSE; inventoryTransfer();
+        for (i=0; i<inventoryLength; ++i) check(inventoryBuffer[i] == (i^0x5a), "transfer read/write mismatch");
+        for (; i<80; ++i) check(inventoryBuffer[i] == 0, "transfer exceeded requested length");
+    }
+    inventoryLength = 72; inventoryWrite = TRUE;
+    start=cycles();
+    for (repeat=0; repeat<128; ++repeat) inventoryTransfer();
+    elapsed=(cycles()-start)/128;
+    RAM_BANK=savedBank;
+    *(volatile byte*)VERA_ctrl=0;
+    testEnableInterrupts();
+    output("72-BYTE VRAM TRANSFER CYCLES: "); number(elapsed); output("; ");
+    /* Original byte loop: 1,476 cycles for a 72-byte row. */
+    check(elapsed < 1100, "VRAM row transfer exceeded CPU budget");
+    inventoryTransfer();
+    check(!(testStatus() & 4), "transfer left interrupts disabled");
+    checkBackground();
 }
 int main(void)
 {
@@ -260,6 +313,7 @@ int main(void)
     fullInventoryPerformance();
     nameAndPagingCases();
     allocationFailureCases();
+    transferStateCases();
     output("INVENTORY PASS");
     testExit();
     return 0;

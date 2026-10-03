@@ -118,3 +118,15 @@ feedKeyEnd:
     stz feedActive
 feedKeyDone:
     rts
+.export _testDisableInterrupts, _testEnableInterrupts, _testStatus
+_testDisableInterrupts:
+    sei
+    rts
+_testEnableInterrupts:
+    cli
+    rts
+_testStatus:
+    php
+    pla
+    ldx #0
+    rts

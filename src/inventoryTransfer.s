@@ -25,19 +25,54 @@ _inventoryTransfer:
     ldx #0
     lda _inventoryWrite
     beq @read
-@write:
+    lda _inventoryLength
+    lsr
+    lsr
+    lsr
+    tay
+    beq @writeTailCheck
+@writeGroups:
+    .repeat 8
+        lda _inventoryBuffer,x
+        sta $9f23
+        inx
+    .endrepeat
+    dey
+    bne @writeGroups
+@writeTailCheck:
+    cpx _inventoryLength
+    beq @done
+@writeTail:
     lda _inventoryBuffer,x
     sta $9f23
     inx
     cpx _inventoryLength
-    bne @write
+    bne @writeTail
     bra @done
 @read:
+    lda _inventoryLength
+    lsr
+    lsr
+    lsr
+    tay
+    beq @readTailCheck
+@readGroups:
+    .repeat 8
+        lda $9f23
+        sta _inventoryBuffer,x
+        inx
+    .endrepeat
+    dey
+    bne @readGroups
+@readTailCheck:
+    cpx _inventoryLength
+    beq @done
+@readTail:
     lda $9f23
     sta _inventoryBuffer,x
     inx
     cpx _inventoryLength
-    bne @read
+    bne @readTail
 @done:
     pla
     sta $9f22
