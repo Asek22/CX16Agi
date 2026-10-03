@@ -2179,8 +2179,8 @@ void bAPopulatePrecomputedPriorityTable()
 
 #pragma code-name (pop)
 
-#define VIEW_HEADER_BUFFER_SIZE 501
-#define LOOP_HEADER_BUFFER_SIZE 501
+#define VIEW_HEADER_BUFFER_SIZE (5 + 255 * 2)
+#define LOOP_HEADER_BUFFER_SIZE (1 + 255 * 2)
 #define VIEW_BUFFERS_BANK 9
 extern byte viewHeaderBuffer[VIEW_HEADER_BUFFER_SIZE];
 extern byte loopHeaderBuffer[LOOP_HEADER_BUFFER_SIZE];
@@ -2207,7 +2207,7 @@ void setViewData(byte viewNum, AGIFile* tempAGI, View* localView)
 	memCpyBankedBetween((byte*)&viewHeaderBuffer[0], VIEW_BUFFERS_BANK, tempAGI->code, tempAGI->codeBank, NO_LOOPS_INDEX_BYTES_AVERAGE + POSITION_OF_LOOPS_OFFSET); //Guessing at 7 loops, this should copy enough 99% of the time, and we can copy again once we have the first byte (loopCounter), is necessary . If there is less loops than we have just copied bytes which will be ignored
 	numberOfLoops = viewHeaderBuffer[POSITION_OF_NO_LOOPS];
 
-	if (numberOfLoops > NO_LOOPS_INDEX_BYTES_AVERAGE)
+	if ((unsigned)numberOfLoops * 2 > NO_LOOPS_INDEX_BYTES_AVERAGE)
 	{
 		memCpyBankedBetween((byte*)&viewHeaderBuffer[0], VIEW_BUFFERS_BANK, tempAGI->code, tempAGI->codeBank, numberOfLoops * 2 + POSITION_OF_LOOPS_OFFSET);
 	}
@@ -2262,7 +2262,7 @@ void setViewData(byte viewNum, AGIFile* tempAGI, View* localView)
 	localView->maxVeraSlots = 0;
 	localView->codeBlock = tempAGI->code;
 	localView->codeBlockBank = tempAGI->codeBank;
-	setLoadedView(&localView, viewNum);
+	setLoadedView(localView, viewNum);
 }
 
 #define POSITION_OF_NO_CELS 0
