@@ -3,6 +3,77 @@
 #include "../../memoryManager.h"
 #include "../../view.h"
 #include <string.h>
+#include <cbm.h>
+
+#pragma wrapped-call (push, trampoline, FILE_LOADER_HELPERS)
+extern byte* b6ReadFileContentsIntoBankedRam(int size, byte* bank);
+#pragma wrapped-call (pop)
+extern byte allocationArray[];
+
+static void truncatedResourceCase(void)
+{
+    static byte before[ALLOCATION_ARRAY_SIZE], after[ALLOCATION_ARRAY_SIZE];
+    FILE* output;
+    byte bank = 0xe7, channel;
+    byte* block;
+    output = fopen("short.res", "wb");
+    auditCheck(output != 0, "short resource fixture creation");
+    fputs("partial", output); fclose(output);
+    memCpyBanked(before, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(before));
+    memset(GOLDEN_RAM_WORK_AREA, 0xa5, LOCAL_WORK_AREA_SIZE);
+    channel = b6Cbm_openForSeeking("short.res");
+    block = b6ReadFileContentsIntoBankedRam(600, &bank);
+    cbm_close(channel);
+    auditCheck(!block && !bank, "truncated resource copied stale work-area bytes as live payload");
+    memCpyBanked(after, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(after));
+    auditCheck(!memcmp(before, after, sizeof(before)), "truncated resource leaked its allocation");
+    auditCheck(remove("short.res") == 0, "short resource fixture cleanup");
+}
+
+static void completeResourceCase(void)
+{
+    byte source[32], copied[32];
+    static byte logic[] = {0x12,0x34,0,6,0, 1,0,0,0,0,0};
+    FILE* output;
+    byte bank, channel;
+    byte* block;
+    unsigned i, offset, amount;
+    AGIFile loaded;
+    AGIFilePosType position;
+    for (i=0; i<sizeof(source); ++i) source[i] = (byte)i;
+    output = fopen("whole.res", "wb");
+    auditCheck(output != 0, "complete resource fixture creation");
+    for (offset=0; offset<537; offset+=amount) {
+        amount = 537-offset < sizeof(source) ? 537-offset : sizeof(source);
+        auditCheck(fwrite(source, 1, amount, output) == amount, "complete resource fixture write");
+    }
+    fclose(output);
+    channel = b6Cbm_openForSeeking("whole.res");
+    block = b6ReadFileContentsIntoBankedRam(537, &bank);
+    cbm_close(channel);
+    auditCheck(block != 0, "complete resource incorrectly rejected");
+    for (offset=0; offset<537; offset+=amount) {
+        amount = 537-offset < sizeof(source) ? 537-offset : sizeof(source);
+        memCpyBanked(copied, block+offset, bank, amount);
+        auditCheck(!memcmp(source, copied, amount), "complete multi-chunk resource lost payload bytes");
+    }
+    auditCheck(b10BankedDealloc(block, bank), "complete resource allocation cleanup");
+    bank = 0xe7;
+    auditCheck(!b6ReadFileContentsIntoBankedRam(0, &bank) && !bank, "empty resource was accepted");
+    bank = 0xe7;
+    auditCheck(!b6ReadFileContentsIntoBankedRam(8001, &bank) && !bank, "oversized resource was accepted");
+    auditCheck(remove("whole.res") == 0, "complete resource fixture cleanup");
+    output = fopen("vol.8", "wb");
+    auditCheck(output != 0, "empty message logic fixture creation");
+    auditCheck(fwrite(logic, 1, sizeof(logic), output) == sizeof(logic), "empty message logic fixture write");
+    fclose(output);
+    memset(&position, 0, sizeof(position)); position.fileNum = 8;
+    memset(&loaded, 0xe7, sizeof(loaded));
+    b6LoadAGIFile(LOGIC, &position, &loaded);
+    auditCheck(loaded.code && loaded.codeSize == 1 && !loaded.noMessages && !loaded.messagePointers && !loaded.messageData && !loaded.messageBank, "valid logic with no message payload lost empty-section metadata");
+    auditCheck(b10BankedDealloc(loaded.code, loaded.codeBank), "empty message logic allocation cleanup");
+    auditCheck(remove("vol.8") == 0, "empty message logic fixture cleanup");
+}
 
 #pragma wrapped-call (push, trampoline, SPRITE_METADATA_BANK)
 extern void bESetViewMetadata(View* view, ViewTable* table, byte viewNum, byte tableNum, byte slot);
@@ -84,4 +155,6 @@ void resource20AuditCases(void)
     wideCelCase(128);
     wideCelCase(160);
     wideCelCase(255);
+    truncatedResourceCase();
+    completeResourceCase();
 }

@@ -342,6 +342,8 @@ byte* b6ReadFileContentsIntoBankedRam(int size, byte* bank)
 	int i;
 	int copySize;
 	int debug;
+	*bank = 0;
+	if (size <= 0 || size > MEMORY_MANAGER_BANK_SIZE) return NULL;
 	result = b10BankedAlloc(size, bank);
 	memsetBanked(result, 0, size, *bank);
 #ifdef VERBOSE
@@ -366,7 +368,12 @@ byte* b6ReadFileContentsIntoBankedRam(int size, byte* bank)
 #endif
 		}
 
-		cbm_read(SEQUENTIAL_LFN, &GOLDEN_RAM[LOCAL_WORK_AREA_START], copySize);
+		if (cbm_read(SEQUENTIAL_LFN, &GOLDEN_RAM[LOCAL_WORK_AREA_START], copySize) != copySize)
+		{
+			b10BankedDealloc(result, *bank);
+			*bank = 0;
+			return NULL;
+		}
 
 #ifdef VERBOSE
 		printf("result + i %p. i %d\n", result + i, i);
@@ -441,10 +448,10 @@ boolean b6SeekAndCheckSignature(char* fileName, AGIFilePosType* location)
 
 	b6Cx16_fseek(FILE_OPEN_ADDRESS, location->filePos);
 
-	cbm_read(SEQUENTIAL_LFN, &currentByte, 1);
+	if (cbm_read(SEQUENTIAL_LFN, &currentByte, 1) != 1) return FALSE;
 	signatureValidationPassed = currentByte == 0x12;
 
-	cbm_read(SEQUENTIAL_LFN, &currentByte, 1);
+	if (cbm_read(SEQUENTIAL_LFN, &currentByte, 1) != 1) return FALSE;
 	signatureValidationPassed = signatureValidationPassed & currentByte == 0x34;
 
 	if (!signatureValidationPassed) {  /* All AGI data files start with 0x1234 */
@@ -467,13 +474,14 @@ byte b6SeekAndReadLogicIntoMemory(AGIFile* AGIData, int resType)
 	unsigned char byte1, byte2, volNum;
 
 
-	cbm_read(SEQUENTIAL_LFN, &currentByte, 1);
+	AGIData->code = NULL;
+	if (cbm_read(SEQUENTIAL_LFN, &currentByte, 1) != 1) return 0;
 	volNum = currentByte;
 
-	cbm_read(SEQUENTIAL_LFN, &currentByte, 1);
+	if (cbm_read(SEQUENTIAL_LFN, &currentByte, 1) != 1) return 0;
 	byte1 = currentByte;
 
-	cbm_read(SEQUENTIAL_LFN, &currentByte, 1);
+	if (cbm_read(SEQUENTIAL_LFN, &currentByte, 1) != 1) return 0;
 	byte2 = currentByte;
 
 	AGIData->totalSize = (unsigned int)(byte1)+(unsigned int)(byte2 << 8);
@@ -483,13 +491,14 @@ byte b6SeekAndReadLogicIntoMemory(AGIFile* AGIData, int resType)
 #ifdef VERBOSE
 		printf("volNum:%d byte1:%p, byte2:%p, size:%d\n", volNum, byte1, byte2, (unsigned int)(byte1)+(unsigned int)(byte2 << 8));
 #endif // VERBOSE
-		cbm_read(SEQUENTIAL_LFN, &currentByte, 1);
+		if (cbm_read(SEQUENTIAL_LFN, &currentByte, 1) != 1) return 0;
 		byte1 = currentByte;
 
-		cbm_read(SEQUENTIAL_LFN, &currentByte, 1);
+		if (cbm_read(SEQUENTIAL_LFN, &currentByte, 1) != 1) return 0;
 		byte2 = currentByte;
 
 		AGIData->codeSize = byte1 + byte2 * 256;
+		if (AGIData->totalSize < 5 || AGIData->codeSize > AGIData->totalSize - 5) return 0;
 
 		AGIData->code = b6ReadFileContentsIntoBankedRam(AGIData->codeSize, &bank);
 	}
@@ -569,9 +578,18 @@ void b6LoadAGIFile(int resType, AGIFilePosType* location, AGIFile* AGIData)
 
 	lfn = b6Cbm_openForSeeking(&fileName[0]);
 
-	b6SeekAndCheckSignature(&fileName[0], location);
+	if (!b6SeekAndCheckSignature(&fileName[0], location))
+	{
+		cbm_close(lfn);
+		exit(EXIT_FAILURE);
+	}
 
 	AGIData->codeBank = b6SeekAndReadLogicIntoMemory(AGIData, resType);
+	if (!AGIData->code)
+	{
+		cbm_close(lfn);
+		exit(EXIT_FAILURE);
+	}
 
 #ifdef VERBOSE
 		printf("Loaded resource type %d into bank %d address %p size %d\n", resType, AGIData->codeBank, AGIData->code, AGIData->totalSize);
@@ -579,13 +597,22 @@ void b6LoadAGIFile(int resType, AGIFilePosType* location, AGIFile* AGIData)
 
 
 	if (resType == LOGIC) {
-		cbm_read(SEQUENTIAL_LFN, &byte1, 1);
+		if (cbm_read(SEQUENTIAL_LFN, &byte1, 1) != 1) goto invalidMessageSection;
 		AGIData->noMessages = byte1;
 
-		cbm_read(SEQUENTIAL_LFN, &byte1, 1);
-		cbm_read(SEQUENTIAL_LFN, &byte2, 1);
+		if (cbm_read(SEQUENTIAL_LFN, &byte1, 1) != 1 || cbm_read(SEQUENTIAL_LFN, &byte2, 1) != 1) goto invalidMessageSection;
+		if (AGIData->noMessages * 2 > AGIData->totalSize - AGIData->codeSize - 5) goto invalidMessageSection;
+		if (AGIData->totalSize == AGIData->codeSize + 5)
+		{
+			AGIData->messagePointers = NULL;
+			AGIData->messageData = NULL;
+			AGIData->messageBank = 0;
+			cbm_close(lfn);
+			return;
+		}
 
 		wholeMessageSectionData = b6ReadFileContentsIntoBankedRam(AGIData->totalSize - AGIData->codeSize - 5, &AGIData->messageBank);
+		if (!wholeMessageSectionData) goto invalidMessageSection;
 		AGIData->messagePointers = (byte**)&wholeMessageSectionData[0];
 
 		AGIData->messageData = &wholeMessageSectionData[b6GetPositionOfFirstMessage(AGIData)];
@@ -714,9 +741,14 @@ void b6LoadAGIFile(int resType, AGIFilePosType* location, AGIFile* AGIData)
 #ifdef VERBOSE
 	//printf("File closed");
 #endif // VERBOSE
+	return;
+
+invalidMessageSection:
+	b10BankedDealloc(AGIData->code, AGIData->codeBank);
+	AGIData->code = NULL;
+	AGIData->codeBank = 0;
+	cbm_close(lfn);
+	exit(EXIT_FAILURE);
 
 }
 #pragma code-name (pop)
-
-
-
