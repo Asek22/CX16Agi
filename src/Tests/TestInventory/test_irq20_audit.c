@@ -65,10 +65,28 @@ static void boundedInput(void)
     inputLineDisplayed = FALSE;
 }
 
+extern byte b1PetciiToControllers[];
+extern byte b1ControllerBits[];
+static void invalidControllerKey(void)
+{
+    byte original, fakeController = 17, bits;
+    boolean accepted;
+    b1InitControllers();
+    /* A high PETSCII key must not consult the neighboring bank data. */
+    memCpyBanked(&original, b1PetciiToControllers + LARGEST_PETSCII + 1, CONTROLLER_BANK, 1);
+    memCpyBanked(b1PetciiToControllers + LARGEST_PETSCII + 1, &fakeController, CONTROLLER_BANK, 1);
+    accepted = b1SetControllerByPetscii(LARGEST_PETSCII + 1);
+    memCpyBanked(b1PetciiToControllers + LARGEST_PETSCII + 1, &original, CONTROLLER_BANK, 1);
+    auditCheck(!accepted, "out-of-range PETSCII key read neighboring controller data");
+    memCpyBanked(&bits, b1ControllerBits + 2, CONTROLLER_BANK, 1);
+    auditCheck(!(bits & 2), "out-of-range PETSCII key activated an unrelated controller");
+}
+
 void auditIrq20(void)
 {
     stoppedSound();
     disabledSound();
     boundedInput();
+    invalidControllerKey();
     auditOutput("IRQ20 AUDIT PASS\n");
 }
