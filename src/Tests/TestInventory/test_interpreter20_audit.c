@@ -15,6 +15,7 @@ extern byte wordsPointersBank;
 extern word* synonymsList;
 extern byte synonymsListBank;
 extern byte allocationArray[];
+extern char b7CurrentInputStr[];
 #pragma wrapped-call (push, trampoline, PARSER_BANK)
 extern void b7StripExtraChars(char* input);
 #pragma wrapped-call (pop)
@@ -26,6 +27,7 @@ static void parserDictionary(void)
     byte dataBank, pointersBank, synBank;
     int count = 1, synonym = 777;
     char input[41];
+    byte prefix[3] = {'b',0,0}, guard[8];
     data = b10BankedAlloc(100, &dataBank);
     pointers = b10BankedAlloc(100, &pointersBank);
     synonyms = b10BankedAlloc(100, &synBank);
@@ -45,6 +47,20 @@ static void parserDictionary(void)
     b7LookupWords(input);
     auditCheck(numInputWords == 1 && inputWords[0] == synonym && !var[9],
         "PARSER REINTRODUCED PUNCTUATION AFTER NORMALIZING INPUT");
+    memCpyBanked(data, prefix, dataBank, sizeof(prefix));
+    memCpyBanked((byte*)wordsTextStart, prefix, WORD_BANK, sizeof(prefix));
+    strcpy(input, "b bee");
+    var[9] = 0;
+    b7LookupWords(input);
+    auditCheck(numInputWords == 1 && inputWords[0] == synonym && var[9] == 2,
+        "PARSER FAILED A SHORT DICTIONARY WORD BEFORE A SPACE");
+    memsetBanked(b7CurrentInputStr, 0xa5, sizeof(guard), PARSER_BANK);
+    strcpy(input, "b b b b b b b b b b b b b b b b b b b b");
+    b7LookupWords(input);
+    memCpyBanked(guard, (byte*)b7CurrentInputStr, PARSER_BANK, sizeof(guard));
+    auditCheck(guard[0] == 0xa5 && guard[1] == 0xa5 && numInputWords <= 10,
+        "PARSER OVERWROTE INPUT BUFFER AFTER TEN RECOGNIZED WORDS");
+    memsetBanked(b7CurrentInputStr, 0, sizeof(guard), PARSER_BANK);
     b12DiscardWords();
 }
 #pragma wrapped-call (push, trampoline, VIEW_CODE_BANK_2)
@@ -95,7 +111,7 @@ static void followCurrentView(void)
 }
 static void dictionaryLifetime(void)
 {
-    static byte before[ALLOCATION_ARRAY_SIZE], after[ALLOCATION_ARRAY_SIZE];
+    byte before[ALLOCATION_ARRAY_SIZE], after[ALLOCATION_ARRAY_SIZE];
     byte *data, *pointers, *synonyms;
     byte dataBank, pointersBank, synBank;
     memCpyBanked(before, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(before));

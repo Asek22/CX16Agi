@@ -431,6 +431,8 @@ void b7LookupWords(char* inputLine)
 	{
 		// Copy the bytes of the current token into strBuf
 		memcpy(strBuf, *start, stringLength);
+		/* A shortened token range ends at the following token's space. */
+		while (stringLength && strBuf[stringLength - 1] == ' ') --stringLength;
 
 		// Make it a proper C string
 		strBuf[stringLength] = '\0';
@@ -483,6 +485,11 @@ void b7LookupWords(char* inputLine)
 			// If synonym number is non-zero, store it
 			if (synNum)
 			{
+				if (numInputWords == sizeof(inputWords) / sizeof(inputWords[0])) {
+					var[9] = numInputWords + 1;
+					allWordsFound = FALSE;
+					break;
+				}
 				flag[2] = TRUE;
 				// Save synonym number
 				inputWords[numInputWords] = synNum;
