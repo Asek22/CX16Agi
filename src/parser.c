@@ -63,6 +63,7 @@ void b7SetEvent(EventType* event, byte eventNumber)
 
 int b7GetInputWord(byte number)
 {
+	if (number >= sizeof(inputWords) / sizeof(inputWords[0])) return -1;
 	return inputWords[number];
 }
 

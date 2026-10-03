@@ -1998,9 +1998,31 @@ b1Have_keyCCall:
 lda NO_ARGS
 asl
 sta sreg
-stz sreg + 1
+lda #0
+rol
+sta sreg + 1
 INC_CODE_BY sreg
 jmp returnFromOpCodeFalse
+.endmacro
+
+.macro SKIP_UNUSED_SAID_ARGS
+inx
+inx
+stx sreg
+lda NO_ARGS
+asl
+tay
+lda #0
+rol
+sta sreg + 1
+tya
+sec
+sbc sreg
+sta sreg
+lda sreg + 1
+sbc #0
+sta sreg + 1
+INC_CODE_BY sreg
 .endmacro
 
 ; ------------------------------------------------------------
@@ -2108,6 +2130,9 @@ bFSaid:
 
     lda NO_ARGS
     asl
+    bcc @counterFits
+    lda #255 ; Input holds ten words; retain a ceiling above every valid index.
+@counterFits:
     sta WORDS_COUNTER
 
     ldx #$0
@@ -2237,21 +2262,7 @@ bFSaid:
 ; ------------------------------------------------------------
 
 @incrementByUnusedWordsFalse:
-
-    inx
-    inx
-
-    stx sreg
-    lda NO_ARGS
-    asl
-    sec
-    sbc sreg
-    sta sreg
-    stz sreg + 1
-
-    beq @returnFromOpCodeFalseJmp
-
-    INC_CODE_BY sreg
+    SKIP_UNUSED_SAID_ARGS
 
 @returnFromOpCodeFalseJmp:
 
@@ -2314,19 +2325,7 @@ bFSaid:
 ; ------------------------------------------------------------
 
 @incrementByUnusedWordsTrue:
-
-    inx
-    inx
-
-    stx sreg
-    lda NO_ARGS
-    asl
-    sec
-    sbc sreg
-    sta sreg
-    stz sreg + 1
-
-    INC_CODE_BY sreg
+    SKIP_UNUSED_SAID_ARGS
 
     jmp @matched
 
