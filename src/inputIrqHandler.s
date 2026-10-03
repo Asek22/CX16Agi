@@ -10,6 +10,7 @@ b7HandleInputLine:
 SET_VERA_ADDRESS_IMMEDIATE INPUT_STRING_ADDRESS, #$0, #$2
 @clearInputLine:
 lda #TRANSPARENT_CHAR
+ldx #$0 ; Sound handler's X is not an input-line column.
 
 @clearLoop:
 sta VERA_data0
