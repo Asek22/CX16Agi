@@ -40,6 +40,9 @@ extern int strcmpIgnoreSpace(const char* str1, const char* str2);
 extern char* strcpyBanked(char* dest, const char* src, byte bank);
 extern size_t strLenBanked(char* string, int bank);
 
+/* Synchronous copy: caller retains ownership until return. Both pointers must
+ * fit the selected bank window; split transfers at $C000 and select the next
+ * bank explicitly. The implementation is assembly. */
 extern void* memCpyBanked(byte* dest, byte* src, byte bank, size_t len);
 extern void memCpyBankedBetween(byte* dest, byte bankDst, byte* src, byte bankSrc, size_t len);
 extern void memsetBanked(void* _Dst, int _Val, size_t _Size, byte bank);

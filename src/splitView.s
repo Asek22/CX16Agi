@@ -5,7 +5,6 @@ SPLITVIEW_INC = 1
 .include "global.s"
 
 .import _b5RefreshBuffer
-.import _memCpyBanked
 .import _memsetBanked
 .import _b1DivAndCeil
 .import _memCpyBankedBetween

@@ -130,6 +130,7 @@ multLookUp:
 .addr multBy17
 
 .segment "CODE"
+.include "bankedCopy.s"
 
 ;Multiplies two products from 0 to 17
 ;Input a/y, output a

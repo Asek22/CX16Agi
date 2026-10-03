@@ -161,27 +161,6 @@ char* strcpyBanked(char* dest, const char* src, byte bank)
 	return result;
 }
 
-void* memCpyBanked(byte* dest, byte* src, byte bank, size_t len)
-{
-	byte previousRamBank = RAM_BANK;
-	void* returnVal;
-
-	RAM_BANK = bank;
-
-	returnVal = memcpy(dest, src, len);
-
-#ifdef VERBOSE_CPY_CHECK
-	if (enableHelpersDebugging)
-	{
-		printf("Attempting to copy to %p from %p on bank %p length %d and the first byte is %p\n", dest, src, bank, len, *src);
-	}
-#endif 
-
-	RAM_BANK = previousRamBank;
-
-	return returnVal;
-}
-
 void memsetBanked(void* _Dst, int _Val, size_t _Size, byte bank)
 {
 	byte previousRamBank = RAM_BANK;
