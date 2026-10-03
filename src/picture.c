@@ -142,10 +142,11 @@ void b0CSetLoadedPicture(PictureFile* loadedPicture, byte loadedPictureNumber)
 
 #define plotPatternPoint() \
    if (patCode & 0x20) { \
-      if ((B8_SPLATTER_MAP[bitPos>>3] >> (7-(bitPos&7))) & 1) b8DrawPixel(x1, y1); \
+      if (x1 >= 0 && x1 < PICTURE_WIDTH && y1 >= 0 && y1 < PICTURE_HEIGHT && \
+          ((B8_SPLATTER_MAP[bitPos>>3] >> (7-(bitPos&7))) & 1)) b8DrawPixel(x1, y1); \
       bitPos++; \
       if (bitPos == 0xff) bitPos=0; \
-   } else b8DrawPixel(x1, y1)
+   } else if (x1 >= 0 && x1 < PICTURE_WIDTH && y1 >= 0 && y1 < PICTURE_HEIGHT) b8DrawPixel(x1, y1)
 
 #pragma wrapped-call (push, trampoline, PICTURE_CODE_OVERFLOW_BANK)
 /**************************************************************************
@@ -158,7 +159,8 @@ void b8PlotPattern(byte x, byte y)
 {
 
 	int circlePos = 0;
-	byte x1, y1, penSize, bitPos = B8_SPLATTER_START[patNum];
+	int x1, y1;
+	byte penSize, bitPos = B8_SPLATTER_START[patNum];
 
 	penSize = (patCode & 7);
 
@@ -170,8 +172,6 @@ void b8PlotPattern(byte x, byte y)
 	if (y<penSize) y = penSize;
 	else if (y>=168-penSize) y=167-penSize;
 	*/
-	if (x < penSize) x = penSize - 1;
-	if (y < penSize) y = penSize;
 	//else if (y>=168-penSize) y=167-penSize;
 
 	for (y1 = y - penSize; y1 <= y + penSize; y1++) {
