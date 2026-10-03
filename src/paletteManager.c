@@ -10,8 +10,9 @@ byte palettesAllocated;
 #pragma code-name (push, "BANKRAM0F")
 byte bFInitPaletteManager()
 {
-	memset(allocatedPaletteOwners, 0, NO_MANAGED_PALETTES);
+	memset(allocatedPaletteOwners, 0, sizeof(allocatedPaletteOwners));
 	palettesAllocated = 0;
+	return 0;
 }
 
 byte bFGetPalette(int id, PaletteGetResult* result)
@@ -22,13 +23,6 @@ byte bFGetPalette(int id, PaletteGetResult* result)
 #ifdef VERBOSE_PALETTE_MANAGER
 	printf("gp1. the id is %d\n", id);
 #endif // VERBOSE_PALETTE_MANAGER
-
-	if (palettesAllocated == NO_MANAGED_PALETTES)
-	{
-		*result = FailToAllocate;
-
-		return 0;
-	}
 
 #ifdef VERBOSE_PALETTE_MANAGER
 	printf("gp2. the number of available palettes are %d\n", NO_MANAGED_PALETTES - palettesAllocated);
@@ -46,6 +40,11 @@ byte bFGetPalette(int id, PaletteGetResult* result)
 			*result = AlreadyAllocated;
 			return i + BASE_MANAGED_PALETTE;
 		}
+	}
+	if (palettesAllocated == NO_MANAGED_PALETTES)
+	{
+		*result = FailToAllocate;
+		return 0;
 	}
 	
 	*result = Allocated;
