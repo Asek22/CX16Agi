@@ -42,9 +42,33 @@ static void disabledSound(void)
     auditCheck(RAM_BANK == previousBank, "disabled sound changed the caller bank");
 }
 
+#define INPUT_ADDRESS (MAPBASE + 25UL * 128)
+static void boundedInput(void)
+{
+    char line[41];
+    unsigned int start;
+    byte i;
+    memset(line, 'A', 40);
+    line[40] = 0;
+    testDisableInterrupts();
+    inputLineDisplayed = TRUE;
+    memCpyBanked((byte*)b7CurrentInputStr, (byte*)line, PARSER_BANK, sizeof(line));
+    testPoke(66, INPUT_ADDRESS + 80UL);
+    testPoke(67, INPUT_ADDRESS + 82UL);
+    start = vSyncCounter;
+    testEnableInterrupts();
+    while (vSyncCounter == start) { }
+    auditCheck(testPeek(INPUT_ADDRESS + 80UL) == 66, "maximum input string spilled beyond the visible input row");
+    auditCheck(testPeek(INPUT_ADDRESS + 82UL) == 67, "maximum input cursor spilled beyond the visible input row");
+    for (i = 1; i < 40; ++i)
+        auditCheck(testPeek(INPUT_ADDRESS + (unsigned long)i * 2) == 'A', "bounded input lost an in-range character");
+    inputLineDisplayed = FALSE;
+}
+
 void auditIrq20(void)
 {
     stoppedSound();
     disabledSound();
+    boundedInput();
     auditOutput("IRQ20 AUDIT PASS\n");
 }

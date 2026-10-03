@@ -33,13 +33,13 @@ beq @exitInputLoop
 sta VERA_data0
 
 inx
-cpx #MAX_INPUT_STRING_LENGTH
+cpx #MAX_INPUT_STRING_LENGTH - 1 ; Reserve the first tile for the prompt.
 beq @exitInputLoop
 bra @drawInputLoop
 @exitInputLoop:
 
 @drawCursor:
-cpx #MAX_INPUT_STRING_LENGTH ;Don't draw if we are at the end
+cpx #MAX_INPUT_STRING_LENGTH - 1 ; Cursor also fits within the 40-tile row.
 beq @end
 lda #CURSOR_CHAR
 sta VERA_data0
@@ -47,5 +47,4 @@ sta VERA_data0
 @end:
 rts
 .endif
-
 
