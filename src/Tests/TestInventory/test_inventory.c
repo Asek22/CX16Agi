@@ -42,6 +42,9 @@ extern void soundAuditCases(void), metadataAuditCases(void), allocatorAuditCases
 extern void inputAuditCases(void), viewsAuditCases(void), showObjAuditCases(void);
 extern void resource20AuditCases(void), render20AuditCases(void), auditIrq20(void);
 extern void interpreter20AuditCases(void);
+extern void blit20AuditCases(void);
+extern void upload20AuditCases(void);
+extern void runtime20AuditCases(void);
 static void makeObjects(void)
 {
     objectType object;
@@ -375,6 +378,15 @@ int main(void)
 #endif
 #if defined(AUDIT_CASE_interpreter20)
     interpreter20AuditCases();
+#endif
+#if defined(AUDIT_CASE_blit20)
+    blit20AuditCases();
+#endif
+#if defined(AUDIT_CASE_upload20)
+    upload20AuditCases();
+#endif
+#if defined(AUDIT_CASE_runtime20)
+    runtime20AuditCases();
 #endif
     output("INVENTORY PASS");
     testExit();
