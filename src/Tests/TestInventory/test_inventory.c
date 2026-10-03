@@ -5,6 +5,7 @@
 #include <cx16.h>
 #include <string.h>
 #include <stdlib.h>
+#include "audit.h"
 #include "../../keyboard.h"
 
 extern void loadInitBankAndInitMemory(void);
@@ -35,6 +36,10 @@ static void check(byte ok, const char* message)
         testExit();
     }
 }
+void auditCheck(byte ok, const char* message) { check(ok, message); }
+void auditOutput(const char* text) { output(text); }
+extern void soundAuditCases(void), metadataAuditCases(void), allocatorAuditCases(void);
+extern void inputAuditCases(void), viewsAuditCases(void), showObjAuditCases(void);
 static void makeObjects(void)
 {
     objectType object;
@@ -339,6 +344,24 @@ int main(void)
     allocationFailureCases();
     transferStateCases();
     kq1ObjectCases();
+#if defined(AUDIT_CASE_all) || defined(AUDIT_CASE_sound)
+    soundAuditCases();
+#endif
+#if defined(AUDIT_CASE_all) || defined(AUDIT_CASE_metadata)
+    metadataAuditCases();
+#endif
+#if defined(AUDIT_CASE_all) || defined(AUDIT_CASE_allocator)
+    allocatorAuditCases();
+#endif
+#if defined(AUDIT_CASE_all) || defined(AUDIT_CASE_input)
+    inputAuditCases();
+#endif
+#if defined(AUDIT_CASE_all) || defined(AUDIT_CASE_views)
+    viewsAuditCases();
+#endif
+#if defined(AUDIT_CASE_showobj)
+    showObjAuditCases();
+#endif
     output("INVENTORY PASS");
     testExit();
     return 0;
