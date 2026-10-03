@@ -161,7 +161,7 @@ void b10InitDynamicMemory()
 //	return _memoryAreas[memoryArea].start - &[ALLOCATION_ARRAY_START_INDEX]
 //}
 
-byte* b10BankedAlloc(int size, byte* bank)
+byte* b10TryBankedAlloc(int size, byte* bank)
 {
 
 	byte i, j;
@@ -204,6 +204,12 @@ byte* b10BankedAlloc(int size, byte* bank)
 			}
 		}
 
+	return result;
+}
+
+byte* b10BankedAlloc(int size, byte* bank)
+{
+	byte* result = b10TryBankedAlloc(size, bank);
 	if (!result)
 	{
 		printf(B10_OUT_DYNAMIC,size);

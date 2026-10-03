@@ -4,6 +4,7 @@
 #include "../../spriteAllocator.h"
 #include <cx16.h>
 #include <string.h>
+#include <stdlib.h>
 #include "../../keyboard.h"
 
 extern void loadInitBankAndInitMemory(void);
@@ -176,10 +177,45 @@ static void nameAndPagingCases(void)
     makeObjects();
     checkClosed();
 }
+static void unexpectedExit(void)
+{
+    output("INVENTORY FAIL: exhausted save-under terminated the interpreter");
+    testExit();
+}
+static void allocationFailureCases(void)
+{
+    static byte* pointers[ALLOCATION_ARRAY_SIZE];
+    static byte banks[ALLOCATION_ARRAY_SIZE];
+    static VeraSpriteAddress sprites[TOTAL_REAL_BLOCKS/64];
+    byte count = 0, i;
+    unsigned j;
+    for (j=TINY_NO_SEGMENTS+EXTRA_SMALL_NO_SEGMENTS; j<ALLOCATION_ARRAY_SIZE; ++j)
+        if (!baselineAllocations[j]) {
+            pointers[count] = b10BankedAlloc(1368, &banks[count]);
+            ++count;
+        }
+    /* The product must stay alive when the disposable panel cannot allocate. */
+    testPutKey(KEY_ESC);
+    check(inventoryShow(TRUE) == 255 && !inventoryActive, "exhausted save-under did not cancel safely");
+    for (i=0; i<count; ++i) check(b10BankedDealloc(pointers[i], banks[i]), "fixture RAM release failed");
+    checkBackground();
+    count = 0;
+    while (count < TOTAL_REAL_BLOCKS/64) {
+        sprites[count] = bDFindFreeVramBlock(SPR_SIZE_64, SPR_SIZE_64);
+        check(sprites[count] != 0 && sprites[count]+2048 <= VRAM_START+VRAM_SIZE, "sprite allocator overflowed reserved VRAM");
+        ++count;
+    }
+    check(!inventoryInspectOpen(0), "inspect allocated from an exhausted sprite pool");
+    inventoryInspectClose();
+    for (i=0; i<count; ++i) bDDeleteAllocation(sprites[i], SPR_SIZE_64, SPR_SIZE_64);
+    checkClosed(); checkBackground();
+    checkArt(0, 0xff, 10, 15);
+}
 int main(void)
 {
     byte i;
     objectType object;
+    atexit(unexpectedExit);
     loadInitBankAndInitMemory();
     makeObjects();
     bDInitSpriteMemoryManager();
@@ -223,6 +259,7 @@ int main(void)
     checkClosed(); checkBackground();
     fullInventoryPerformance();
     nameAndPagingCases();
+    allocationFailureCases();
     output("INVENTORY PASS");
     testExit();
     return 0;

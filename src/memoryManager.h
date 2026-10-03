@@ -188,6 +188,8 @@ extern void trampoline(); //DOTO: Really should come from helpers but there woul
 
 #pragma wrapped-call (push, trampoline, MEMORY_MANAGEMENT_BANK)
 byte* b10BankedAlloc(int size, byte* bank);
+/* Disposable overlays may fail without terminating the interpreter. */
+byte* b10TryBankedAlloc(int size, byte* bank);
 boolean b10BankedDealloc(byte* ptr, byte bank);
 #pragma wrapped-call (pop)
 

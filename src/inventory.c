@@ -151,7 +151,7 @@ byte inventoryShow(boolean select)
     objectType object;
     byte* saved;
     if (inventoryActive) return 255;
-    saved = b10BankedAlloc(PANEL_ROWS*PANEL_BYTES, &bank);
+    saved = b10TryBankedAlloc(PANEL_ROWS*PANEL_BYTES, &bank);
     if (!saved) return 255;
     inventoryActive = TRUE;
     for (row = 0; row < PANEL_ROWS; ++row) {
