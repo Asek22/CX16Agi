@@ -82,11 +82,27 @@ static void invalidControllerKey(void)
     auditCheck(!(bits & 2), "out-of-range PETSCII key activated an unrelated controller");
 }
 
+#pragma wrapped-call (push, trampoline, TEXT_CODE_BANK)
+extern byte b3WrapText(char* text, int width, byte* maxWidth);
+#pragma wrapped-call (pop)
+static void explicitNewlines(void)
+{
+    static const char expected[] = {111,110,101,32,120,10,116,119,111,32,120,10,116,104,114,101,101,0};
+    static char text[sizeof(expected)];
+    byte width, lines;
+    memcpy(text, expected, sizeof(expected));
+    lines = b3WrapText(text, 5, &width);
+    auditCheck(lines == 3, "explicit newline caused a spurious text wrap");
+    auditCheck(!strcmp(text, expected), "explicit newline altered an already fitting line");
+    auditCheck(width == 5, "text wrap ignored final or explicit line width");
+}
+
 void auditIrq20(void)
 {
     stoppedSound();
     disabledSound();
     boundedInput();
     invalidControllerKey();
+    explicitNewlines();
     auditOutput("IRQ20 AUDIT PASS\n");
 }

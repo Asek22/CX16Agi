@@ -304,13 +304,14 @@ byte b3WrapText(char* line_start, int width, byte* maxWidth) {
 		}
 
 		if (p - line_start > width && last_space || *p == NEW_LINE) {
+			if (*p == NEW_LINE) last_space = p;
+			if (*maxWidth < last_space - line_start)
+			{
+				*maxWidth = last_space - line_start;
+			}
 			if (*p != NEW_LINE)
 			{
 				*last_space = NEW_LINE;
-				if (*maxWidth < (last_space - line_start) + 1)
-				{
-					*maxWidth = (last_space - line_start) + 1;
-				}
 			}
 
 			line_start = last_space + 1;
@@ -320,6 +321,7 @@ byte b3WrapText(char* line_start, int width, byte* maxWidth) {
 			numberOfLines++;
 		}
 	}
+	if (*maxWidth < p - line_start) *maxWidth = p - line_start;
 
 	return numberOfLines;
 }
