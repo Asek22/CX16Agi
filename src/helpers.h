@@ -143,7 +143,7 @@ extern byte _previousRomBank;
     do {                              \
         if(*data >= buffer + bufferSize) \
 		{ \
-			b5RefreshBuffer(bufferStatus); \
+			b5RefreshBufferNonGolden(bufferStatus, buffer, bufferSize); \
             *data = buffer; \
 		} \
 		 storeLocation = *((*data)++); \

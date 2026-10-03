@@ -59,17 +59,23 @@ const unsigned char SN76489_to_CX16_Volume[16] = {
 // reallocating or flushing buffers as necessary.
 void bBWriteNextNG(byte** memoryBlock, byte* buffer, byte** dataPtr, byte toWrite, BufferStatus* bufferStatus, unsigned int* oldBlockSize, unsigned int newBlockSize, byte* bank, unsigned int bufferSize)
 {
+	unsigned int channelOffset = bufferStatus->bankedData - *memoryBlock;
+	unsigned int requiredSize = channelOffset + bufferStatus->bufferCounter * bufferSize + (*dataPtr - buffer) + 1;
+
+	// Reserve the complete resource, including earlier channels, before flushing.
+	if (requiredSize > *oldBlockSize)
+	{
+		if (newBlockSize < requiredSize) newBlockSize = requiredSize;
+		b5ReallocateBiggerMemoryBlock(memoryBlock, newBlockSize, oldBlockSize, bank);
+		bufferStatus->bankedData = *memoryBlock + channelOffset;
+		bufferStatus->bank = *bank;
+	}
+
 	// If pointer exceeds buffer size, flush and reset pointer.
 	if (*dataPtr >= buffer + bufferSize)
 	{
 		b5FlushBufferNonGolden(bufferStatus, buffer, bufferSize, bufferSize);
 		*dataPtr = buffer;
-	}
-
-	// Check if current position exceeds allocated block size, reallocate if needed.
-	if (bufferStatus->bufferCounter * bufferSize + (*dataPtr - buffer) > *(oldBlockSize))
-	{
-		b5ReallocateBiggerMemoryBlock(memoryBlock, newBlockSize, oldBlockSize, bank);
 	}
 
 	// Write the byte and move data pointer forward
@@ -374,7 +380,7 @@ void bBPreComputePeriodicSound(SoundFile* soundFile, unsigned int* soundChannelO
 	newChNoiseLocalBufferStatus.bufferCounter = 0;
 
 	// Read first notes from channel 2 buffer
-	moreTwoToRead = bBFillNoteBuffer(oldCh2Buffer, oldCh2DataPtr, &oldCh2LocalBufferStatus, oldCh2Bytes);
+	moreTwoToRead = bBFillNoteBuffer(GOLDEN_RAM_WORK_AREA, oldCh2DataPtr, &oldCh2LocalBufferStatus, oldCh2Bytes);
 
 	if (moreTwoToRead)
 	{
@@ -382,14 +388,14 @@ void bBPreComputePeriodicSound(SoundFile* soundFile, unsigned int* soundChannelO
 	}
 
 	// Main loop processing noise channel notes
-	while (bBFillNoteBuffer(oldChNoiseBuffer, oldChNoiseDataPtr, &oldChNoiseLocalBufferStatus, oldChNoiseBytes))
+	while (bBFillNoteBuffer(GOLDEN_RAM_WORK_AREA + ONETHIRDBUFFERSIZE, oldChNoiseDataPtr, &oldChNoiseLocalBufferStatus, oldChNoiseBytes))
 	{
 		// Check if noise is white noise (noise channel flags bit 2 set)
 		if ((oldChNoiseBytes[NOISE_CHANNEL] & 4) >> 2) // white noise
 		{
 			// Advance channel 2 note position by noise channel note duration
-			advancement = *((unsigned int*)oldChNoiseBytes[DURATION_BYTE]);
-			bBAdvance2(oldCh2Buffer, oldCh2DataPtr, &oldCh2LocalBufferStatus, oldCh2Bytes, &moreTwoToRead, advancement);
+			advancement = *((unsigned int*)&oldChNoiseBytes[DURATION_BYTE]);
+			bBAdvance2(GOLDEN_RAM_WORK_AREA, oldCh2DataPtr, &oldCh2LocalBufferStatus, oldCh2Bytes, &moreTwoToRead, advancement);
 
 			// Write noise channel note bytes verbatim into new noise channel buffer
 			for (i = 0; i < NO_NOTE_BYTES; i++)
@@ -421,7 +427,7 @@ void bBPreComputePeriodicSound(SoundFile* soundFile, unsigned int* soundChannelO
 			lfsr = (lfsr >> 1) | (feedback << 14);   // keep it 15-bit state
 
 			// Advance channel 2 notes by the lfsrDuration used
-			bBAdvance2(oldCh2Buffer, oldCh2DataPtr, &oldCh2LocalBufferStatus, oldCh2Bytes, &moreTwoToRead, lfsrDuration);
+			bBAdvance2(GOLDEN_RAM_WORK_AREA, oldCh2DataPtr, &oldCh2LocalBufferStatus, oldCh2Bytes, &moreTwoToRead, lfsrDuration);
 
 			// Decrement remaining beats accordingly
 			if (remainingBeats > lfsrDuration)

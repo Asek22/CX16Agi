@@ -45,6 +45,7 @@ byte* b5ReallocateBiggerMemoryBlock(byte** memoryBlock, unsigned int newBufferSi
 	memCpyBankedBetween(*memoryBlock, *bank, oldMemoryBlock, oldBank, *oldBufferSize);
 	b10BankedDealloc(oldMemoryBlock, oldBank);
 	*oldBufferSize = newBufferSize;
+	return *memoryBlock;
 }
 
 void b5FlushBufferNonGolden(BufferStatus* bufferStatus, byte* buffer, int bufferSize, int amountToCopy)
@@ -254,7 +255,6 @@ void b10GetLogicDirectory(AGIFilePosType* returnedLogicDirectory, AGIFilePosType
 	*returnedLogicDirectory = *logicDirectoryLocation;
 }
 #pragma code-name (pop)
-
 
 
 
