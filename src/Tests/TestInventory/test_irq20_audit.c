@@ -6,6 +6,8 @@
 #include "../../menu.h"
 
 extern boolean bBIsPlaying[4];
+extern SoundFile* bBLoadedSoundsPointer[];
+extern byte soundLoadCounter;
 extern byte bBEndSoundFlag, bBChannelsPlaying;
 extern char b7CurrentInputStr[];
 extern void testDisableInterrupts(void), testEnableInterrupts(void);
@@ -120,6 +122,56 @@ static void oversizedText(void)
     auditCheck(guardValue == 0x5a, "long text display overflowed both text buffers");
 }
 
+static void activeSoundDiscard(void)
+{
+    byte bank, count = 1, i, playing[4], completion;
+    byte note[] = {0xe8,3,0,4,30,255,255};
+    unsigned int start;
+    SoundFile sound, *entry = bBLoadedSounds;
+    SoundFile* lookup;
+    byte* retired;
+    bBInitSound();
+    /* Discarding an unloaded ID is also an ordinary idempotent operation. */
+    bBDiscardSoundFile(255);
+    sound.soundResource = b10BankedAlloc(100, &bank);
+    sound.ch0 = sound.ch1 = sound.ch2 = sound.chNoise = sound.soundResource;
+    sound.soundBank = bank;
+    sound.isLogicZeroOrDependency = FALSE;
+    retired = sound.soundResource;
+    memCpyBanked(retired, note, bank, sizeof(note));
+    memCpyBanked((byte*)entry, (byte*)&sound, SOUND_BANK, sizeof(sound));
+    memCpyBanked((byte*)(bBLoadedSoundsPointer + 7), (byte*)&entry, SOUND_BANK, sizeof(entry));
+    memCpyBanked(&soundLoadCounter, &count, SOUND_BANK, 1);
+    flag[9] = TRUE;
+    start = vSyncCounter;
+    while (vSyncCounter == start) { }
+    bBPlaySound(7, 43);
+    start = vSyncCounter;
+    while (vSyncCounter == start) { }
+    auditCheck(testPeek(0x1f9c2UL) != 0, "seeded sound never reached the actual PSG IRQ path");
+    bBDiscardSoundFile(7);
+    testDisableInterrupts();
+    memCpyBanked(playing, (byte*)bBIsPlaying, SOUND_BANK, sizeof(playing));
+    memCpyBanked((byte*)&lookup, (byte*)(bBLoadedSoundsPointer + 7), SOUND_BANK, sizeof(lookup));
+    completion = flag[43];
+    testEnableInterrupts();
+    for (i = 0; i < 4; ++i)
+        auditCheck(!playing[i], "discard freed a resource while its IRQ channels were still playing");
+    auditCheck(completion, "discard did not complete the active sound flag");
+    auditCheck(lookup == NULL, "discard retained the loaded sound table pointer");
+    sound.soundResource = b10BankedAlloc(100, &bank);
+    auditCheck(sound.soundResource == retired, "discard did not release its banked sound allocation");
+    memset(note, 0xff, sizeof(note));
+    memCpyBanked(sound.soundResource, note, bank, sizeof(note));
+    start = vSyncCounter;
+    while (vSyncCounter == start) { }
+    for (i = 0; i < 4; ++i)
+        auditCheck(testPeek(0x1f9c2UL + (unsigned long)i * 4) == 0, "IRQ reactivated PSG after retired sound buffer reuse");
+    b10BankedDealloc(sound.soundResource, bank);
+    bBDiscardSoundFile(7);
+    flag[9] = FALSE;
+}
+
 void auditIrq20(void)
 {
     stoppedSound();
@@ -128,5 +180,6 @@ void auditIrq20(void)
     invalidControllerKey();
     explicitNewlines();
     oversizedText();
+    activeSoundDiscard();
     auditOutput("IRQ20 AUDIT PASS\n");
 }

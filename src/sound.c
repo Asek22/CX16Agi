@@ -19,6 +19,7 @@ extern int soundEndFlag;               // External reference to the sound end fl
 SoundFile bBLoadedSounds[MAX_LOADED_SOUNDS];         // Array of loaded sound files
 SoundFile* bBLoadedSoundsPointer[MAX_SOUNDS];        // Pointers to loaded sounds indexed by sound number
 byte soundLoadCounter;                                 // Counter of loaded sounds
+static SoundFile* bBPlayingSound;                       // Owns the live IRQ note pointers
 unsigned long totalSoundSize, totalBeats;             // Total size and beats for current sound
 static unsigned int bBLFSR = LFSR_INITIAL_SEED;       // Static LFSR state used in noise generation
 
@@ -187,7 +188,7 @@ void bBDiscardSoundFile(int soundNum)
 	// Get pointer to loaded sound structure
 	sound = bBLoadedSoundsPointer[soundNum];
 
-	if(sound->isLogicZeroOrDependency)
+	if (sound == NULL || sound->isLogicZeroOrDependency)
 	{
 		return;
 	}
@@ -200,6 +201,8 @@ void bBDiscardSoundFile(int soundNum)
 	// Only proceed if valid sound and resource
 	if (sound && soundResource != NULL)
 	{
+		/* Withdraw IRQ readers before releasing their banked note storage. */
+		if (bBPlayingSound == sound) bBStopSound();
 		// Deallocate banked sound resource
 		b10BankedDealloc(soundResource, sound->soundBank);
 
@@ -710,6 +713,7 @@ void bBPlaySound(byte soundNum, byte endSoundFlag)
 
 	// Store end sound flag for signaling when sound finishes
 	bBEndSoundFlag = endSoundFlag;
+	bBPlayingSound = bBLoadedSoundsPointer[soundNum];
 
 	REENABLE_INTERRUPTS(); // Re-enable interrupts for playback
 }
@@ -739,6 +743,7 @@ void bBStopSound()
 		bBChannelsPlaying = 0;
 		flag[bBEndSoundFlag] = TRUE;
 	}
+	bBPlayingSound = NULL;
 	REENABLE_INTERRUPTS(); // Re-enable interrupts after sound stop
 }
 
