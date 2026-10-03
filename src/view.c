@@ -2635,7 +2635,7 @@ void bAFollowEgo(ViewTable* localViewTab)
 	Cel egoCel, localCel;
 
 	getViewTab(&egoViewTab, 0);
-	getLoadedView(&egoView, 0);
+	getLoadedView(&egoView, egoViewTab.currentView);
 	getLoadedLoop(&egoView, &egoLoop, egoViewTab.currentLoop);
 	getLoadedCel(&egoLoop, &egoCel, egoViewTab.currentCel);
 
