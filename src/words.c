@@ -450,6 +450,13 @@ void b12LoadWords()
 void b12DiscardWords()
 {
     b10BankedDealloc((byte*)wordsData, wordsDataBank);
+    b10BankedDealloc((byte*)wordPointers, wordsPointersBank);
+    b10BankedDealloc((byte*)synonymsList, synonymsListBank);
+    wordsData = NULL;
+    wordPointers = NULL;
+    synonymsList = NULL;
+    wordsDataBank = wordsPointersBank = synonymsListBank = 0;
+    numWords = numSynonyms = 0;
 }
 
 #define USER_WORD_BUFFER ((char*) GOLDEN_RAM_WORK_AREA)

@@ -8,6 +8,81 @@
 extern char wordsTextStart[];
 extern LOGICEntry logics[];
 extern LOGICFile logicFiles[];
+extern char* wordsData;
+extern byte wordsDataBank;
+extern char** wordPointers;
+extern byte wordsPointersBank;
+extern word* synonymsList;
+extern byte synonymsListBank;
+extern byte allocationArray[];
+#pragma wrapped-call (push, trampoline, VIEW_CODE_BANK_2)
+extern void bAFollowEgo(ViewTable* table);
+#pragma wrapped-call (pop)
+static void followCurrentView(void)
+{
+    static byte ids[] = {0, 251, 252};
+    View original[3], views[3];
+    ViewTable ego, oldEgo, follower;
+    Loop loop;
+    Cel cel;
+    byte i, celBanks[3];
+    byte* cells[3];
+    memset(&ego, 0, sizeof(ego));
+    memset(&follower, 0, sizeof(follower));
+    memset(views, 0, sizeof(views));
+    getViewTab(&oldEgo, 0);
+    for (i=0; i<3; ++i) {
+        getLoadedView(&original[i], ids[i]);
+        memset(&loop, 0, sizeof(loop));
+        memset(&cel, 0, sizeof(cel));
+        cel.width = i == 1 ? 20 : 4;
+        cel.height = 1;
+        cells[i] = b10BankedAlloc(sizeof(cel), &celBanks[i]);
+        memCpyBanked(cells[i], (byte*)&cel, celBanks[i], sizeof(cel));
+        loop.cels = (Cel*)cells[i]; loop.celsBank = celBanks[i]; loop.numberOfCels = 1;
+        views[i].loops = (Loop*)b10BankedAlloc(sizeof(loop), &views[i].loopsBank);
+        memCpyBanked((byte*)views[i].loops, (byte*)&loop, views[i].loopsBank, sizeof(loop));
+        views[i].loaded = TRUE; views[i].numberOfLoops = 1;
+        setLoadedView(&views[i], ids[i]);
+    }
+    ego.currentView = 251; ego.xPos = 10; ego.yPos = 20;
+    setViewTab(&ego, 0);
+    follower.currentView = 252; follower.xPos = 18; follower.yPos = 20;
+    follower.motion = FOLLOW; follower.param1 = 1; follower.param2 = 249;
+    follower.param3 = 255; follower.direction = 5;
+    flag[249] = FALSE;
+    bAFollowEgo(&follower);
+    auditCheck(follower.direction == 0 && follower.motion == NORMAL_MOTION && flag[249],
+        "FOLLOW EGO USED VIEW ZERO WIDTH INSTEAD OF EGO CURRENT VIEW");
+    setViewTab(&oldEgo, 0);
+    for (i=0; i<3; ++i) {
+        setLoadedView(&original[i], ids[i]);
+        auditCheck(b10BankedDealloc(cells[i], celBanks[i]), "FOLLOW FIXTURE CEL CLEANUP");
+        auditCheck(b10BankedDealloc((byte*)views[i].loops, views[i].loopsBank), "FOLLOW FIXTURE LOOP CLEANUP");
+    }
+}
+static void dictionaryLifetime(void)
+{
+    static byte before[ALLOCATION_ARRAY_SIZE], after[ALLOCATION_ARRAY_SIZE];
+    byte *data, *pointers, *synonyms;
+    byte dataBank, pointersBank, synBank;
+    memCpyBanked(before, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(before));
+    data = b10BankedAlloc(500, &dataBank);
+    pointers = b10BankedAlloc(1000, &pointersBank);
+    synonyms = b10BankedAlloc(100, &synBank);
+    memCpyBanked((byte*)&wordsData, (byte*)&data, WORD_BANK, sizeof(data));
+    memCpyBanked((byte*)&wordsDataBank, &dataBank, WORD_BANK, sizeof(dataBank));
+    memCpyBanked((byte*)&wordPointers, (byte*)&pointers, WORD_BANK, sizeof(pointers));
+    memCpyBanked((byte*)&wordsPointersBank, &pointersBank, WORD_BANK, sizeof(pointersBank));
+    memCpyBanked((byte*)&synonymsList, (byte*)&synonyms, WORD_BANK, sizeof(synonyms));
+    memCpyBanked((byte*)&synonymsListBank, &synBank, WORD_BANK, sizeof(synBank));
+    b12DiscardWords();
+    memCpyBanked(after, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(after));
+    auditCheck(!memcmp(before, after, sizeof(before)), "DICTIONARY DISCARD LEAKED POINTER OR SYNONYM ALLOCATIONS");
+    b12DiscardWords();
+    memCpyBanked(after, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(after));
+    auditCheck(!memcmp(before, after, sizeof(before)), "REPEATED DICTIONARY DISCARD CHANGED ALLOCATION OWNERSHIP");
+}
 static unsigned long cycles(void)
 {
     byte a = *(volatile byte*)0x9fb8;
@@ -73,4 +148,6 @@ void interpreter20AuditCases(void)
     sprintf(measured, "BELOW-FIRST SEARCH CYCLES: %lu; ", elapsed);
     auditOutput(measured);
     saidScript();
+    dictionaryLifetime();
+    followCurrentView();
 }
