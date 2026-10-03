@@ -174,7 +174,8 @@ void memsetBanked(void* _Dst, int _Val, size_t _Size, byte bank)
 
 void memCpyBankedBetween(byte* dest, byte bankDst, byte* src, byte bankSrc, size_t len)
 {
-#define BUFFER_SIZE 50
+/* Leave room for cc65's byte-indexed stack arguments and locals. */
+#define BUFFER_SIZE 192
 	int i;
 	int copyAmount = 0;
 	byte buffer[BUFFER_SIZE];
