@@ -1414,8 +1414,8 @@ boolean agiBlit(byte entryNum, boolean disableInterupts)
 	ViewTable localViewTab;
 	View localView;
 	Loop localLoop;
-	Cel localCel, tempCel;
-	byte viewNum, i;
+	Cel localCel;
+	byte viewNum;
 	byte previousBank;
 	ViewTableMetadata localMetadata;
 	VeraSpriteAddress* loopVeraAddresses;
@@ -1462,26 +1462,16 @@ boolean agiBlit(byte entryNum, boolean disableInterupts)
 		return FALSE;
 	}
 
-	if (localView.maxVeraSlots > 1)
+	if (!localCel.splitCelPointers && (localCel.veraSlotsWidth > 1 || localCel.veraSlotsHeight > 1))
 	{
-		for (i = 0; i < localLoop.numberOfCels; ++i)
+		/* The native bulk uploader handles only the selected cel. */
+		bESplitCel(&localCel);
+		if (!localCel.splitCelPointers || !localCel.splitSegments)
 		{
-			getLoadedCel(&localLoop, &tempCel, i);
-			if (!tempCel.splitCelPointers && (tempCel.veraSlotsWidth > 1 || tempCel.veraSlotsHeight > 1))
-			{
-				bESplitCel(&tempCel);
-				if (!tempCel.splitCelPointers || !tempCel.splitSegments)
-				{
-					RAM_BANK = previousBank;
-					return FALSE;
-				}
-				setLoadedCel(&localLoop, &tempCel, i);
-			}
+			RAM_BANK = previousBank;
+			return FALSE;
 		}
-
-		//printf("setting address %p. loop %d cel %d\n", &((Cel*)bEToBlitCelArray)[localViewTab->currentCel], localViewTab->currentLoop, localViewTab->currentCel);
-
-		//((Cel*)bEToBlitCelArray)[localViewTab->currentCel] = localCel;
+		setLoadedCel(&localLoop, &localCel, localViewTab.currentCel);
 	}
 
 	if (viewTabNoToMetaData[entryNum] != VIEWNO_TO_METADATA_NO_SET && viewTableMetadata[entryNum].viewNum != viewNum)
