@@ -2162,9 +2162,6 @@ bFSaid:
     cmp #<REST_OF_LINE
     bne @checkRecognisedWordCount
 
-    lda #INT_FLAG_INPUT
-    SET_FLAG_NON_INTERPRETER sreg
-
     jmp @incrementByUnusedWordsTrue
 
 
@@ -2320,15 +2317,16 @@ bFSaid:
     inx
 
     stx sreg
-    sec
     lda NO_ARGS
+    asl
+    sec
     sbc sreg
     sta sreg
     stz sreg + 1
 
     INC_CODE_BY sreg
 
-    jmp returnFromOpCodeFalse
+    jmp @matched
 
 b1Compare_stringsCCall:
     jsr _b1Compare_strings

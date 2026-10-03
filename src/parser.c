@@ -61,7 +61,7 @@ void b7SetEvent(EventType* event, byte eventNumber)
 	b7Events[eventNumber] = *event;
 }
 
-byte b7GetInputWord(byte number)
+int b7GetInputWord(byte number)
 {
 	return inputWords[number];
 }
@@ -555,4 +555,3 @@ boolean b7Said(byte** data)
 }
 
 #pragma code-name (pop)
-

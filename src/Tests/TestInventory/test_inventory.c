@@ -41,6 +41,7 @@ void auditOutput(const char* text) { output(text); }
 extern void soundAuditCases(void), metadataAuditCases(void), allocatorAuditCases(void);
 extern void inputAuditCases(void), viewsAuditCases(void), showObjAuditCases(void);
 extern void resource20AuditCases(void), render20AuditCases(void), auditIrq20(void);
+extern void interpreter20AuditCases(void);
 static void makeObjects(void)
 {
     objectType object;
@@ -371,6 +372,9 @@ int main(void)
 #endif
 #if defined(AUDIT_CASE_irq20)
     auditIrq20();
+#endif
+#if defined(AUDIT_CASE_interpreter20)
+    interpreter20AuditCases();
 #endif
     output("INVENTORY PASS");
     testExit();
