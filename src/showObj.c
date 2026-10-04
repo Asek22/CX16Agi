@@ -68,13 +68,17 @@ void b11ShowObj(byte objNum)
    getLoadedLoop(&localView, &localLoop, 0);
    getLoadedCel(&localLoop, &localCel, 0);
 
+   spriteAllocationWidth = bEGetSpriteAllocateSize(localLoop.allocationWidth);
+   spriteAllocationHeight = bEGetSpriteAllocateSize(localLoop.allocationHeight);
+   if (localCel.width > spriteAllocationWidth / 2 || localCel.height > spriteAllocationHeight) {
+      if (!wasLoaded) b9DiscardView(objNum);
+      return;
+   }
    savedText = b10TryBankedAlloc(4096, &textBank);
    if (!savedText) {
       if (!wasLoaded) b9DiscardView(objNum);
       return;
    }
-   spriteAllocationWidth = bEGetSpriteAllocateSize(localLoop.allocationWidth);
-   spriteAllocationHeight = bEGetSpriteAllocateSize(localLoop.allocationHeight);
    spriteAddress = bDFindFreeVramBlock(spriteAllocationWidth, spriteAllocationHeight);
 
    if(spriteAddress)
