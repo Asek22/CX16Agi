@@ -43,7 +43,10 @@ void auditCheck(byte ok, const char* message) { check(ok, message); }
 void auditOutput(const char* text) { output(text); }
 extern void soundAuditCases(void), metadataAuditCases(void), allocatorAuditCases(void);
 extern void inputAuditCases(void), viewsAuditCases(void), showObjAuditCases(void);
-extern void resource20AuditCases(void), render20AuditCases(void), auditIrq20(void);
+extern void resource20AuditCases(void), render20AuditCases(void);
+#pragma wrapped-call (push, trampoline, 1)
+extern void auditIrq20(void);
+#pragma wrapped-call (pop)
 extern void interpreter20AuditCases(void);
 extern void blit20AuditCases(void);
 extern void upload20AuditCases(void);

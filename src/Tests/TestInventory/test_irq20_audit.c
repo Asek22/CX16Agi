@@ -12,9 +12,11 @@ extern byte soundLoadCounter;
 extern byte bBEndSoundFlag, bBChannelsPlaying;
 extern char b7CurrentInputStr[];
 extern void testDisableInterrupts(void), testEnableInterrupts(void);
-#pragma wrapped-call (push, trampoline, 1)
-void activeSoundDiscard(void);
-#pragma wrapped-call (pop)
+extern byte testStatus(void);
+static void activeSoundDiscard(void);
+
+#pragma code-name (push, "BANKRAM01")
+#pragma rodata-name (push, "BANKRAM01")
 
 static void stoppedSound(void)
 {
@@ -31,17 +33,15 @@ static void stoppedSound(void)
     auditCheck(count == 0, "explicit stop retained a playing channel count");
 }
 
-static byte interruptStatus;
 static void disabledSound(void)
 {
     byte previousBank = RAM_BANK;
+    byte interruptStatus;
     flag[9] = FALSE;
     flag[42] = FALSE;
     testEnableInterrupts();
     bBPlaySound(255, 42);
-    asm("php");
-    asm("pla");
-    asm("sta %v", interruptStatus);
+    interruptStatus = testStatus();
     testEnableInterrupts();
     auditCheck(!(interruptStatus & 4), "disabled sound left IRQs masked on early return");
     auditCheck(flag[42], "disabled sound did not complete its requested flag");
@@ -94,7 +94,7 @@ extern byte b3WrapText(char* text, int width, byte* maxWidth);
 static void explicitNewlines(void)
 {
     static const char expected[] = {111,110,101,32,120,10,116,119,111,32,120,10,116,104,114,101,101,0};
-    static char text[sizeof(expected)];
+    char text[sizeof(expected)];
     byte width, lines;
     memcpy(text, expected, sizeof(expected));
     lines = b3WrapText(text, 5, &width);
@@ -126,8 +126,7 @@ static void oversizedText(void)
     auditCheck(guardValue == 0x5a, "long text display overflowed both text buffers");
 }
 
-#pragma code-name (push, "BANKRAM01")
-void activeSoundDiscard(void)
+static void activeSoundDiscard(void)
 {
     byte bank, bankB, count = 2, i, playing[4], completion;
     byte note[] = {0xe8,3,0,4,30,255,255};
@@ -201,7 +200,6 @@ void activeSoundDiscard(void)
     bBDiscardSoundFile(7);
     flag[9] = FALSE;
 }
-#pragma code-name (pop)
 
 static void boxedTextBounds(void)
 {
@@ -283,3 +281,6 @@ void auditIrq20(void)
     disabledMenuAction();
     auditOutput("IRQ20 AUDIT PASS\n");
 }
+
+#pragma rodata-name (pop)
+#pragma code-name (pop)
