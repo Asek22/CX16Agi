@@ -82,11 +82,7 @@ long b12CalculateStartPosition()
     byte data[2];
 
     b6Cx16_fseek(FILE_OPEN_ADDRESS, 0);
-    if (!cbm_read(SEQUENTIAL_LFN, &data[0], 2))
-    {
-        printf("Failed to read from file");
-        exit(0);
-    }
+    if (cbm_read(SEQUENTIAL_LFN, &data[0], 2) != 2) return -1;
 
 #ifdef VERBOSE_CALC_WORDS
     printf("the contents of data is %d and %d\n", data[0], data[1]);
@@ -112,35 +108,37 @@ long b12CalculateStartPosition()
 ** words list. The number of synonyms will be used to check against the
 ** parameters to said() to determine whether those synonyms exist.
 **************************************************************************/
-int b12CalcNumWords(long startPos)
+int b12CalcNumWords(long startPos, int* parsedWordCount, int* parsedSynonymCount)
 {
     byte data[2];
-    int synMax, synNum, wordCount = 0;
+    byte bytesRead;
+    int synMax = 0, synNum, wordCount = 0;
 
-    
     b6Cx16_fseek(FILE_OPEN_ADDRESS, startPos);
 
-    while (cbm_read(SEQUENTIAL_LFN, &data, 1)) {
+    while ((bytesRead = cbm_read(SEQUENTIAL_LFN, &data[0], 1)) == 1) {
 #ifdef VERBOSE_CALC_WORDS
         printf("data[0] is %p\n", data[0]);
 #endif
-        if (data[0] > 0x80) {  /* Top bit set marks the end of a word */
-            cbm_read(SEQUENTIAL_LFN, &data, 2);
-            wordCount++;
-            synNum = (byte)data[0] * 256 + (byte)data[1];
-            if ((synNum > synMax) && (synNum != 9999)) synMax = synNum;
-        }
+        do {
+            if (cbm_read(SEQUENTIAL_LFN, &data[0], 1) != 1) return 0;
+        } while (data[0] < 0x80);  /* Top bit set marks the end of a word. */
+        if (cbm_read(SEQUENTIAL_LFN, &data[0], 2) != 2) return 0;
+        wordCount++;
+        synNum = (byte)data[0] * 256 + (byte)data[1];
+        if ((synNum > synMax) && (synNum != 9999)) synMax = synNum;
     }
 
-    numWords = wordCount;
-    numSynonyms = synMax;
+    if (bytesRead != 0) return 0;
+    *parsedWordCount = wordCount;
+    *parsedSynonymCount = synMax;
 
 
 #ifdef VERBOSE_CALC_WORDS
-    printf("there are %d words\n", numWords);
+    printf("there are %d words\n", wordCount);
 #endif
 
-    return 0;
+    return 1;
 }
 
 byte b12OpenWords()
@@ -334,6 +332,7 @@ void b12LoadWords()
     byte data[2];
     long startPos;
     word wordNum,synNum;
+    int parsedWordCount, parsedSynonymCount;
     char* wordsDataPointer;
     char* newWord = (char*) NEW_WORD_ADDRESS;
     char** wordPointersPointer;
@@ -341,6 +340,7 @@ void b12LoadWords()
     word* synonymsListPointer;
     
     printf(B12_LOADING_WORDS);
+    b12DiscardWords();
 
     lfn = b12OpenWords();
 
@@ -350,16 +350,22 @@ void b12LoadWords()
 
     startPos = b12CalculateStartPosition();
 
-    b12CalcNumWords(startPos);
+    if (startPos < 0 || !b12CalcNumWords(startPos, &parsedWordCount, &parsedSynonymCount)) {
+        cbm_close(SEQUENTIAL_LFN);
+        return;
+    }
+    cbm_close(SEQUENTIAL_LFN);
+    if (!parsedWordCount) return;
+
     wordsData = b10BankedAlloc(LARGE_SIZE, data); //This allocation will be swapped by a smaller one if practical in b12CompressAllocation
     wordsDataBank = data[0];
 
-    wordPointers = (char**)b10BankedAlloc(numWords * sizeof(char*), data);
+    wordPointers = (char**)b10BankedAlloc(parsedWordCount * sizeof(char*), data);
 
     wordsPointersBank = data[0];
     wordPointersPointer = wordPointers;
 
-    synonymsList = (word*) b10BankedAlloc(numWords * sizeof(int), data);
+    synonymsList = (word*) b10BankedAlloc(parsedWordCount * sizeof(int), data);
     synonymsListBank = data[0];
     synonymsListPointer = synonymsList;
 
@@ -370,8 +376,6 @@ void b12LoadWords()
 
     wordsDataPointer = wordsData;
 
-    cbm_close(SEQUENTIAL_LFN);
-
     lfn = b12OpenWords();
     b6Cx16_fseek(FILE_OPEN_ADDRESS, startPos);
 
@@ -379,10 +383,10 @@ void b12LoadWords()
     printf("the start pos is %lu\n", startPos);
 #endif
 
-    for (wordNum = 0; wordNum < numWords; wordNum++) {
-        cbm_read(SEQUENTIAL_LFN, &wordPos, 1);
+    for (wordNum = 0; wordNum < parsedWordCount; wordNum++) {
+        if (cbm_read(SEQUENTIAL_LFN, &wordPos, 1) != 1 || wordPos >= MAX_WORD_SIZE) goto invalidWords;
         do {
-            cbm_read(SEQUENTIAL_LFN, &data[0], 1);
+            if (cbm_read(SEQUENTIAL_LFN, &data[0], 1) != 1 || wordPos >= MAX_WORD_SIZE - 1) goto invalidWords;
             newWord[wordPos++] = ((data[0] ^ 0x7F) & 0x7F);
 
 #ifdef VERBOSE_LETTERS
@@ -390,17 +394,15 @@ void b12LoadWords()
 #endif
 
         } while (data[0] < 0x80);
-        newWord[wordPos] = NULL;
+        newWord[wordPos] = 0;
 
 #ifdef VERBOSE_WORDS
         printf("word: %s\n", newWord);
 #endif
 
-        cbm_read(SEQUENTIAL_LFN, &data[0], 1);
+        if (cbm_read(SEQUENTIAL_LFN, &data[0], 2) != 2) goto invalidWords;
         synNum = (word) data[0] * 256;
-
-        cbm_read(SEQUENTIAL_LFN, &data[0], 1);
-        synNum += data[0];
+        synNum += data[1];
 
         wordLength = strlen(newWord) + 1;
 
@@ -428,6 +430,8 @@ void b12LoadWords()
         }
     }
 
+    numWords = parsedWordCount;
+    numSynonyms = parsedSynonymCount;
     b12CompressWordsAllocation(wordsDataPointer - wordsData - 1); //Words data pointer is pointing to a blank byte read for another word. Therefore -1 from the length
 
     //printf("wordsTextStart %p wordsPointers %p on bank %p wordData %p on bank %p\n", wordsTextStart, wordPointers, wordsPointersBank, wordsData, wordsDataBank);
@@ -440,6 +444,11 @@ void b12LoadWords()
 #ifdef TEST_SYN
     b12TestSyn();
 #endif
+    return;
+
+invalidWords:
+    cbm_close(SEQUENTIAL_LFN);
+    b12DiscardWords();
 }
 
 /***************************************************************************
