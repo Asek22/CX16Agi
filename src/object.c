@@ -51,7 +51,7 @@ boolean bDIsObjCrypt(long fileLen, byte* objData)
 {
     int i, checkLen;
 
-    checkLen = ((fileLen < 20) ? 10 : 20);
+    checkLen = (fileLen < 10) ? fileLen : ((fileLen < 20) ? 10 : 20);
 
     /* TODO: Needs a fix here for Mixed Up Mother Goose */
     // ->>>
@@ -95,16 +95,21 @@ byte bDLoadFile(int* fileLen, byte* buffer)
 **************************************************************************/
 void bDLoadObjectFile()
 {
-    byte lfn;
-    int avisPos = 0, objNum, i, strPos = 0;
+    int avisPos = 0, objNum, i;
     int fileLen;
     byte* marker;
-    word index;
+    word tableSize, nameOffset;
+    unsigned int objectCount;
+    unsigned long nameStart, pos;
 
-    lfn = bDLoadFile(&fileLen, bDObjData);
+    bDLoadFile(&fileLen, bDObjData);
+    bFNumObjects = 0;
+    for (objNum = 0; objNum < MAX_OBJECTS; objNum++) {
+        bDObjects[objNum].name = NULL;
+        bDObjects[objNum].roomNum = 0;
+    }
 
-    marker = (byte*) bDObjData + 3;
-                
+    if (fileLen < 3) return;
     if (bDIsObjCrypt(fileLen, bDObjData))
     {
         for (i = 0; i < fileLen; i++)
@@ -113,13 +118,27 @@ void bDLoadObjectFile()
         }
     }
 
-    bFNumObjects = (((bDObjData[1] * 256) + bDObjData[0]) / 3);
+    tableSize = (word)bDObjData[0] | ((word)bDObjData[1] << 8);
+    if (tableSize % 3 || (unsigned long)tableSize > (unsigned long)(fileLen - 3)) return;
 
-    for (objNum = 0; objNum < bFNumObjects; objNum++, strPos = 0, marker += 3) {
-        index = *(marker)+256 * (*(marker + 1)) + 3;
-        bDObjects[objNum].name = (char*) &bDObjData[index];
+    objectCount = tableSize / 3;
+    if (objectCount > MAX_OBJECTS) return;
+
+    marker = bDObjData + 3;
+    for (objNum = 0; objNum < objectCount; objNum++, marker += 3) {
+        nameOffset = (word)marker[0] | ((word)marker[1] << 8);
+        nameStart = (unsigned long)nameOffset + 3UL;
+        if (nameStart >= (unsigned long)fileLen) return;
+        for (pos = nameStart; pos < (unsigned long)fileLen && bDObjData[pos]; pos++) {}
+        if (pos == (unsigned long)fileLen) return;
+    }
+
+    marker = bDObjData + 3;
+    for (objNum = 0; objNum < objectCount; objNum++, marker += 3) {
+        nameOffset = (word)marker[0] | ((word)marker[1] << 8);
+        bDObjects[objNum].name = (char*)(bDObjData + nameOffset + 3);
         bDObjects[objNum].roomNum = *(marker + 2);
     }
+    bFNumObjects = objectCount;
 }
 #pragma code-name (pop)
-
