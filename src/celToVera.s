@@ -339,6 +339,8 @@ stx VERA_addr_low
 rts
 
 ;bECellToVeraBulk(SpriteAttributeSize allocationWidth, SpriteAttributeSize allocationHeight, byte noCels, byte maxVeraSlots, byte xVal, byte yVal, byte pNum);
+BULK_ORIGIN_X = CLEAR_COLOR
+BULK_CEL_WIDTH = BCOL
 _bEToBlitCelArray: .res 500
 _bECellToVeraBulk:
 sta P_NUM
@@ -349,6 +351,7 @@ sta CEL_BANK
 jsr popax
 sta Y_VAL
 stx X_VAL
+stx BULK_ORIGIN_X
 
 jsr popa
 sta MAX_SPRITE_SLOTS_FOR_VIEW
@@ -377,6 +380,8 @@ jsr popa
 jsr _bECalculateBytesPerRow
 
 @loop:
+lda BULK_ORIGIN_X
+sta X_VAL
 lda #$1
 sta SPLIT_COUNTER
 
@@ -384,6 +389,8 @@ GET_STRUCT_16_STORED_OFFSET _offsetOfSplitCelPointers, CEL_ADDR, SPLIT_CEL_SEGME
 GET_STRUCT_8_STORED_OFFSET _offsetOfSplitCelBank, CEL_ADDR, SPLIT_CEL_BANK
 GET_STRUCT_8_STORED_OFFSET _offsetOfFlipped, CEL_ADDR, CEL_FLIPPED
 GET_STRUCT_8_STORED_OFFSET _offsetOfCelWidth, CEL_ADDR, CEL_WIDTH
+lda CEL_WIDTH
+sta BULK_CEL_WIDTH
 
 lda SPLIT_CEL_SEGMENTS
 ora SPLIT_CEL_SEGMENTS + 1
@@ -411,6 +418,70 @@ jsr _memCpyBankedBetween
 
 @splitLoop: ;Will always iterate once if the cell is not split
 GET_STRUCT_8_STORED_OFFSET _offsetOfSplitSegments, CEL_ADDR, NO_SPLIT_SEGMENTS
+
+; The converter uses CEL_WIDTH and X_VAL for priority sampling. For each
+; horizontal segment, derive those from the original cel geometry; keep the
+; full width separately for the next segment and the backwards offset.
+lda SPLIT_CEL_SEGMENTS
+ora SPLIT_CEL_SEGMENTS + 1
+beq @segmentGeometryReady
+
+; Segment order is row-major. Reduce its zero-based index by the cel's
+; horizontal column count to get this segment's column within the row.
+lda BULK_CEL_WIDTH
+clc
+adc #31
+ror
+lsr
+lsr
+lsr
+lsr
+sta CEL_WIDTH ;number of horizontal segments
+
+lda SPLIT_COUNTER
+dec
+@columnLoop:
+cmp CEL_WIDTH
+bcc @columnKnown
+sec
+sbc CEL_WIDTH
+bra @columnLoop
+@columnKnown:
+asl
+asl
+asl
+asl
+asl
+sta CEL_TO_VERA_GENERAL_TMP ;segment column in cel pixels (32 pixels per 64-wide sprite)
+
+lda BULK_CEL_WIDTH
+sec
+sbc CEL_TO_VERA_GENERAL_TMP
+cmp #32
+bcc @segmentWidthReady
+lda #32
+@segmentWidthReady:
+sta CEL_WIDTH
+
+ldx CEL_FLIPPED
+beq @forwardSegmentX
+lda BULK_ORIGIN_X
+clc
+adc BULK_CEL_WIDTH
+sec
+sbc CEL_TO_VERA_GENERAL_TMP
+sec
+sbc CEL_WIDTH
+sta X_VAL
+bra @segmentGeometryReady
+
+@forwardSegmentX:
+lda BULK_ORIGIN_X
+clc
+adc CEL_TO_VERA_GENERAL_TMP
+sta X_VAL
+
+@segmentGeometryReady:
 
 ldy BULK_ADDRESS_INDEX
 lda _bEBulkAllocatedAddresses, y ;Low Byte
