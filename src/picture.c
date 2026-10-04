@@ -288,6 +288,7 @@ byte b11RelativeDraw(byte** data, BufferStatus* bufferStatus)
 {
 	byte x1, y1, disp;
 	signed char dx, dy;
+	int x2, y2;
 
 	GET_NEXT(x1);
 	GET_NEXT(y1);
@@ -358,9 +359,15 @@ byte b11RelativeDraw(byte** data, BufferStatus* bufferStatus)
 		printf("rel line: %d,%d : %d,%d\n", x1, y1, x1 + dx, y1 + dy);
 #endif
 
-		b8DrawLine(x1, y1, x1 + dx, y1 + dy);
-		x1 += dx;
-		y1 += dy;
+		x2 = x1 + dx;
+		y2 = y1 + dy;
+		if (x2 < 0) x2 = 0;
+		else if (x2 > 159) x2 = 159;
+		if (y2 < 0) y2 = 0;
+		else if (y2 > 167) y2 = 167;
+		b8DrawLine(x1, y1, x2, y2);
+		x1 = x2;
+		y1 = y2;
 	}
 }
 

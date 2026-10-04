@@ -17,6 +17,18 @@ extern byte bEToBlitCelArray[], bEBulkAllocatedAddresses[];
 #pragma wrapped-call (push, trampoline, SPRITE_UPDATED_BANK)
 extern boolean bEAllocateSpriteMemoryBulk(SpriteAllocationSize width, SpriteAllocationSize height, byte count);
 #pragma wrapped-call (pop)
+#define RELATIVE_DRAW_CYCLE_BASELINE 18975UL
+#pragma wrapped-call (push, trampoline, PALETTE_MANAGER_BANK)
+static void denseSplitCase(void);
+static void splitCase(byte width, byte height);
+static void brushCases(void);
+static void relativePictureCases(void);
+static void loaderCases(void);
+static void spriteSpanCases(void);
+static void paletteCases(void);
+#pragma wrapped-call (pop)
+#pragma code-name (push, "BANKRAM0F")
+#pragma rodata-name (push, "BANKRAM0F")
 static void denseSplitCase(void)
 {
     byte row, bank;
@@ -93,6 +105,54 @@ static void brushCases(void)
         auditCheck(testPeek(STARTING_BYTE+168UL*160+i)==0xa5,"right-edge brush wrote beyond the picture rows");
     picDrawEnabled=FALSE;
 }
+static unsigned long cycles(void)
+{
+    byte a=*(volatile byte*)0x9fb8, b=*(volatile byte*)0x9fb9;
+    byte c=*(volatile byte*)0x9fba, d=*(volatile byte*)0x9fbb;
+    return ((unsigned long)d<<24)|((unsigned long)c<<16)|((unsigned)b<<8)|a;
+}
+static void relativePictureCases(void)
+{
+    byte streamBytes[] = {0xf0,5,0xf7,10,80,0x10,0xf1,0xf0,5,0xf7,0,80,0x90,0xff};
+    char measurement[64];
+    PictureFile pictureFile, original;
+    byte bank, x, edgePixel, validPixels, rowUnchanged, adjacentUnchanged, allocationReleased;
+    byte* stream = b10BankedAlloc(sizeof(streamBytes), &bank);
+    unsigned long start, elapsed;
+    auditCheck(stream != 0, "relative picture stream allocation");
+    memCpyBanked(stream, streamBytes, bank, sizeof(streamBytes));
+    memCpyBanked((byte*)&original, (byte*)&loadedPictures[251], PICTURE_DATA_BANK, sizeof(original));
+    memset(&pictureFile, 0, sizeof(pictureFile));
+    pictureFile.loaded = TRUE;
+    pictureFile.size = sizeof(streamBytes);
+    pictureFile.data = stream;
+    pictureFile.bank = bank;
+    memCpyBanked((byte*)&loadedPictures[251], (byte*)&pictureFile, PICTURE_DATA_BANK, sizeof(pictureFile));
+    for (x=0; x<160; ++x) testPoke(0xaa, STARTING_BYTE+80UL*160+x);
+    for (x=0; x<160; ++x) testPoke(0xa5, STARTING_BYTE+81UL*160+x);
+    b8SetupLineTables();
+    start = cycles();
+    b11DrawPic(stream, sizeof(streamBytes), FALSE, 251);
+    elapsed = cycles() - start;
+    sprintf(measurement, "RELATIVE DRAW CYCLES: %lu; BASELINE: %lu; ", elapsed, RELATIVE_DRAW_CYCLE_BASELINE);
+    auditOutput(measurement);
+    edgePixel = testPeek(STARTING_BYTE+80UL*160)==0x55;
+    validPixels = testPeek(STARTING_BYTE+80UL*160+10)==0x55 && testPeek(STARTING_BYTE+80UL*160+11)==0x55;
+    rowUnchanged = TRUE;
+    adjacentUnchanged = TRUE;
+    for (x=0; x<160; ++x) {
+        if (x != 0 && x != 10 && x != 11)
+            if (testPeek(STARTING_BYTE+80UL*160+x)!=0xaa) rowUnchanged = FALSE;
+        if (testPeek(STARTING_BYTE+81UL*160+x)!=0xa5) adjacentUnchanged = FALSE;
+    }
+    memCpyBanked((byte*)&loadedPictures[251], (byte*)&original, PICTURE_DATA_BANK, sizeof(original));
+    allocationReleased = b10BankedDealloc(stream, bank);
+    auditCheck(edgePixel, "relative line lost the valid left-edge pixel");
+    auditCheck(validPixels, "relative line changed valid in-bounds pixels");
+    auditCheck(rowUnchanged, "relative line wrapped across the picture row");
+    auditCheck(adjacentUnchanged, "relative line escaped into an adjacent picture row");
+    auditCheck(allocationReleased, "relative picture fixture allocation was not released");
+}
 static void loaderCases(void)
 {
     byte i;
@@ -150,11 +210,14 @@ static void paletteCases(void)
     for (i=0; i<NO_MANAGED_PALETTES; ++i)
         auditCheck(owners[i]==0,"palette reset retained old owner words");
 }
+#pragma rodata-name (pop)
+#pragma code-name (pop)
 void render20AuditCases(void)
 {
     paletteCases();
     spriteSpanCases();
     brushCases();
+    relativePictureCases();
     auditOutput("SPLIT33X1; ");
     splitCase(33,1);
     auditOutput("SPLIT33X65; ");
