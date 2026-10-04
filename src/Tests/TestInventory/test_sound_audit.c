@@ -1,30 +1,50 @@
 #include "audit.h"
 #include "../../sound.h"
 #include "../../helpers.h"
+#include <stdio.h>
 #include <string.h>
+
+#define SOUND_AUDIT_BANK 0x0f
+#define SOUND_POOL_BANK 0x0a
+
+#pragma wrapped-call (push, trampoline, SOUND_AUDIT_BANK)
+extern void soundAuditBankCases(void);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, SOUND_POOL_BANK)
+extern void soundPoolBankCase(void);
+#pragma wrapped-call (pop)
 
 #pragma wrapped-call (push, trampoline, SOUND_BANK)
 extern boolean bBFillNoteBuffer(byte* buffer, byte** cursor, BufferStatus* status, byte* note);
 extern void bBWriteNextNG(byte** block, byte* buffer, byte** cursor, byte value, BufferStatus* status, unsigned int* size, unsigned int newSize, byte* bank, unsigned int bufferSize);
 extern void bBPreComputePeriodicSound(SoundFile* sound, unsigned int* offsets);
+extern void bBSetChannelOffsets(byte* code, SoundFile* sound, unsigned int* offsets);
+extern void bBPrecomputeValues(SoundFile* sound, unsigned int* offsets);
 #pragma wrapped-call (pop)
 extern unsigned long totalSoundSize, totalBeats;
+extern SoundFile* bBLoadedSoundsPointer[];
+extern byte soundLoadCounter, bBChannelsPlaying;
+extern byte allocationArray[];
 
 #define CHANNEL_BUFFER_SIZE ((LOCAL_WORK_AREA_SIZE - 2) / 3)
 
+static const byte soundAuditStringText[]={98,97,110,107,101,100,0};
+
+#pragma code-name (push, "BANKRAM0F")
+#pragma rodata-name (push, "BANKRAM0F")
+
 static void stringReturnCase(void)
 {
-    static const byte text[]={98,97,110,107,101,100,0};
     byte bank, previous;
     byte* block;
     char first[12], second[12];
-    block=b10BankedAlloc(sizeof(text),&bank);
-    memCpyBanked(block,(byte*)text,bank,sizeof(text));
+    block=b10BankedAlloc(sizeof(soundAuditStringText),&bank);
+    memCpyBanked(block,(byte*)soundAuditStringText,bank,sizeof(soundAuditStringText));
     previous=RAM_BANK;
     auditCheck(strcpyBanked(first,(char*)block,bank)==first,"banked string copy returned wrong first destination");
-    auditCheck(!memcmp(first,text,sizeof(text)) && RAM_BANK==previous,"banked string copy changed contents or caller bank");
+    auditCheck(!memcmp(first,soundAuditStringText,sizeof(soundAuditStringText)) && RAM_BANK==previous,"banked string copy changed contents or caller bank");
     auditCheck(strcpyBanked(second,(char*)block,bank)==second,"banked string copy returned wrong second destination");
-    auditCheck(!memcmp(second,text,sizeof(text)) && RAM_BANK==previous,"banked string copy changed second contents or caller bank");
+    auditCheck(!memcmp(second,soundAuditStringText,sizeof(soundAuditStringText)) && RAM_BANK==previous,"banked string copy changed second contents or caller bank");
     auditCheck(b10BankedDealloc(block,bank),"banked string allocation cleanup");
 }
 
@@ -50,12 +70,13 @@ static void refillCase(void)
 {
     byte channel[CHANNEL_BUFFER_SIZE + 2];
     BufferStatus status;
-    byte bank, previous, j, note[5], *block, *cursor;
+    byte bank, j, note[5], value, *block, *cursor;
     unsigned i;
     block = b10BankedAlloc(CHANNEL_BUFFER_SIZE*2, &bank);
-    previous=RAM_BANK; RAM_BANK=bank;
-    for (i = 0; i < CHANNEL_BUFFER_SIZE*2; ++i) block[i] = (byte)(i % 127 + 1);
-    RAM_BANK=previous;
+    for (i = 0; i < CHANNEL_BUFFER_SIZE*2; ++i) {
+        value=(byte)(i % 127 + 1);
+        memCpyBanked(block+i,&value,bank,1);
+    }
     channel[0] = channel[sizeof(channel)-1] = 0xa7;
     status.bankedData = block;
     status.bank = bank;
@@ -134,6 +155,42 @@ static void precomputeCase(void)
     auditCheck(b10BankedDealloc(sound.soundResource,sound.soundBank),"precomputed sound allocation cleanup");
 }
 
+static void lookaheadCase(void)
+{
+    SoundFile sound;
+    unsigned offsets[4]={8,20,1022,1024}, i;
+    byte markers[2]={0xff,0xff}, note[5]={1,0,1,0,15};
+    byte canary[3]={0xa7,0xa7,0xa7}, actual[3], bank, previous;
+
+    sound.soundResource=b10BankedAlloc(1029,&bank);
+    sound.soundBank=bank;
+    memsetBanked(sound.soundResource,0,1029,bank);
+    memCpyBanked(sound.soundResource,(byte*)offsets,bank,sizeof(offsets));
+    /* Channel 0's marker shifts channel 1 so both refill edges split its frequency pair. */
+    memCpyBanked(sound.soundResource+8,note,bank,sizeof(note));
+    memCpyBanked(sound.soundResource+13,note,bank,sizeof(note));
+    memCpyBanked(sound.soundResource+18,markers,bank,sizeof(markers));
+    for(i=0;i<200;++i) memCpyBanked(sound.soundResource+20+i*5,note,bank,sizeof(note));
+    memCpyBanked(sound.soundResource+1020,markers,bank,sizeof(markers));
+    memCpyBanked(sound.soundResource+1022,markers,bank,sizeof(markers));
+    memCpyBanked(sound.soundResource+1024,markers,bank,sizeof(markers));
+    memCpyBanked(sound.soundResource+1026,canary,bank,sizeof(canary));
+    bBSetChannelOffsets(sound.soundResource,&sound,offsets);
+
+    previous=RAM_BANK;
+    bBPrecomputeValues(&sound,offsets);
+    auditCheck(RAM_BANK==previous,"sound precompute changed caller bank");
+    memCpyBanked(actual,sound.ch1+3,sound.soundBank,1);
+    auditCheck(actual[0]==0x24,"sound precompute control frequency was not 0x24");
+    memCpyBanked(actual,sound.ch0+500,sound.soundBank,1);
+    auditCheck(actual[0]==0x24,"sound precompute missed first-refill split frequency high byte");
+    memCpyBanked(actual,sound.ch0+1000,sound.soundBank,1);
+    auditCheck(actual[0]==0x24,"sound precompute missed second-refill split frequency high byte");
+    memCpyBanked(actual,sound.soundResource+1026,sound.soundBank,sizeof(canary));
+    auditCheck(!memcmp(actual,canary,sizeof(canary)),"sound precompute overwrote resource end canary");
+    auditCheck(b10BankedDealloc(sound.soundResource,sound.soundBank),"sound precompute allocation cleanup");
+}
+
 static void whiteNoiseDurationCase(void)
 {
     SoundFile sound;
@@ -162,7 +219,7 @@ static void whiteNoiseDurationCase(void)
     auditCheck(b10BankedDealloc(sound.soundResource,sound.soundBank),"white-noise duration allocation cleanup");
 }
 
-void soundAuditCases(void)
+void soundAuditBankCases(void)
 {
     stringReturnCase();
     resizeReturnCase();
@@ -170,6 +227,16 @@ void soundAuditCases(void)
     growthCase();
     auditOutput("sound precompute channel-boundary case; ");
     precomputeCase();
+    auditOutput("sound multi-refill lookahead case; ");
+    lookaheadCase();
     whiteNoiseDurationCase();
     auditOutput("sound audit cases passed; ");
+}
+
+#pragma code-name (pop)
+#pragma rodata-name (pop)
+
+void soundAuditCases(void)
+{
+    soundAuditBankCases();
 }

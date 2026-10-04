@@ -228,7 +228,7 @@ unsigned int bBReadAhead(SoundFile* soundFile, unsigned int bytePerBufferCounter
 	// If at end of local buffer, read one byte from banked memory
 	if (bytePerBufferCounter == LOCAL_WORK_AREA_SIZE - 1)
 	{
-		memCpyBanked(&readAheadByte, bufferStatus->bankedData + LOCAL_WORK_AREA_SIZE, soundFile->soundBank, 1);
+		memCpyBanked(&readAheadByte, bufferStatus->bankedData + (unsigned int)bufferStatus->bufferCounter * LOCAL_WORK_AREA_SIZE, soundFile->soundBank, 1);
 	}
 	else
 	{
@@ -245,7 +245,7 @@ unsigned int bBCopyAhead(SoundFile* soundFile, unsigned int bytePerBufferCounter
 	if (bytePerBufferCounter == LOCAL_WORK_AREA_SIZE - 1)
 	{
 		// Copy byte to banked memory area just past buffer
-		memCpyBanked(bufferStatus->bankedData + LOCAL_WORK_AREA_SIZE, &toCopy, soundFile->soundBank, 1);
+		memCpyBanked(bufferStatus->bankedData + (unsigned int)bufferStatus->bufferCounter * LOCAL_WORK_AREA_SIZE, &toCopy, soundFile->soundBank, 1);
 	}
 	else
 	{
