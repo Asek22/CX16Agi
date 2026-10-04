@@ -2613,7 +2613,8 @@ void b9SetView(byte viewNum, byte entryNum)
 void b9AddToPic(int vNum, int lNum, int cNum, int x, int y, int pNum, int bCol)
 {
 	int i, j, trans, c, boxWidth;
-	byte calcYCoord;
+	int calcYCoord, rowsToSkip;
+	byte runLength;
 	View localView;
 	Loop localLoop;
 	Cel localCel;
@@ -2623,6 +2624,29 @@ void b9AddToPic(int vNum, int lNum, int cNum, int x, int y, int pNum, int bCol)
 	getLoadedCel(&localLoop, &localCel, cNum);
 
 	calcYCoord = (y - localCel.height) + 1;
+	if (calcYCoord < 0)
+	{
+		rowsToSkip = -calcYCoord;
+		if (rowsToSkip >= localCel.height)
+		{
+			return;
+		}
+
+		while (rowsToSkip--)
+		{
+			do
+			{
+				memCpyBanked(&runLength, localCel.bmp, localCel.bitmapBank, 1);
+				localCel.bmp++;
+			} while (runLength != 0);
+		}
+		localCel.height -= -calcYCoord;
+		calcYCoord = 0;
+	}
+	else if (calcYCoord >= PICTURE_HEIGHT)
+	{
+		return;
+	}
 
 	//printf("x and y are %p, %p, %d, %d. the height is %d %p\n", x, calcYCoord, x, calcYCoord, localCel.height, localCel.height);
 

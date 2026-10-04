@@ -27,6 +27,11 @@ static void loaderCases(void);
 static void spriteSpanCases(void);
 static void paletteCases(void);
 #pragma wrapped-call (pop)
+
+#pragma wrapped-call (push, trampoline, CONTROLLER_BANK)
+static void addToPicTopClipCase(void);
+#pragma wrapped-call (pop)
+
 #pragma code-name (push, "BANKRAM0F")
 #pragma rodata-name (push, "BANKRAM0F")
 static void denseSplitCase(void)
@@ -210,10 +215,55 @@ static void paletteCases(void)
     for (i=0; i<NO_MANAGED_PALETTES; ++i)
         auditCheck(owners[i]==0,"palette reset retained old owner words");
 }
+#pragma code-name (push, "BANKRAM01")
+#pragma rodata-name (push, "BANKRAM01")
+static void addToPicTopClipCase(void)
+{
+    static const byte resource[] = {0x12,0x34,0,17,0, 0,0,1,0,0,7,0, 1,3,0, 1,2,15,0x12,0,0x22,0};
+    AGIFilePosType position, oldPosition;
+    FILE* output;
+    unsigned long address;
+    byte i;
+    byte savedBank = RAM_BANK;
+    output = fopen("vol.8", "wb");
+    auditCheck(output != 0, "add.to.pic clipped VIEW fixture creation");
+    auditCheck(fwrite(resource, 1, sizeof(resource), output) == sizeof(resource), "add.to.pic clipped VIEW fixture write");
+    fclose(output);
+    memCpyBanked((byte*)&oldPosition, (byte*)&viewdir[248], DIRECTORY_BANK, sizeof(oldPosition));
+    memset(&position, 0, sizeof(position)); position.fileNum = 8;
+    memCpyBanked((byte*)&viewdir[248], (byte*)&position, DIRECTORY_BANK, sizeof(position));
+    b9LoadViewFile(248);
+    b8SetupLineTables();
+    address = b8GetVeraPictureAddress(10, 0);
+    for (i = 0; i < 3; ++i) {
+        testPoke(0xa5, address - 161 + i);
+        testPoke(0xa5, address - 1 + i);
+    }
+    testPoke(0xa5, address + 2);
+    testPoke(0x44, PRIORITY_START + 4);
+    testPoke(0x44, PRIORITY_START + 5);
+    testPoke(0x44, PRIORITY_START + 6);
+    b9AddToPic(248, 0, 0, 10, 0, 5, 15);
+    auditCheck(testPeek(address) == 0x22 && testPeek(address + 1) == 0x22,
+               "ADD.TO.PIC DREW THE HIDDEN TOP RLE ROW OR SKIPPED THE VISIBLE ROW");
+    auditCheck(testPeek(address - 1) == 0xa5 && testPeek(address + 2) == 0xa5,
+               "top-clipped add.to.pic changed horizontal neighbors");
+    for (i = 0; i < 3; ++i)
+        auditCheck(testPeek(address - 161 + i) == 0xa5, "top-clipped add.to.pic wrote into the offscreen row");
+    auditCheck(testPeek(PRIORITY_START + 4) == 0x44 && testPeek(PRIORITY_START + 5) == 0x44 &&
+               testPeek(PRIORITY_START + 6) == 0x44, "top-clipped add.to.pic changed priority pixels");
+    b9DiscardView(248);
+    memCpyBanked((byte*)&viewdir[248], (byte*)&oldPosition, DIRECTORY_BANK, sizeof(oldPosition));
+    auditCheck(remove("vol.8") == 0, "add.to.pic clipped VIEW fixture cleanup");
+    auditCheck(RAM_BANK == savedBank, "add.to.pic clipping changed caller bank");
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 void render20AuditCases(void)
 {
+    addToPicTopClipCase();
     paletteCases();
     spriteSpanCases();
     brushCases();
