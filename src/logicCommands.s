@@ -2234,6 +2234,9 @@ bFSaid:
 
 @checkAnyWord:
 
+    lda ARGS + 1
+    bne @incrementByUnusedWordsFalse
+
     lda ARGS
     cmp #ANY_WORD
     beq @incrementLoopCounter

@@ -18,8 +18,8 @@ static unsigned long cycles(void)
 }
 static void saidScript(void)
 {
-    /* if (said(0x1234, REST_OF_LINE)) assignn(v250, 77); return; */
-    static byte script[64] = {255,14,2,0x34,0x12,0x0f,0x27,255,3,0,3,250,77,0};
+    /* if (said(0x1201, REST_OF_LINE)) assignn(v250, 77); assignn(v251, 88); return; */
+    static byte script[64] = {255,14,2,0x01,0x12,0x0f,0x27,255,3,0,3,250,77,3,251,88,0};
     LOGICEntry entry, saved;
     LOGICFile file;
     byte bank, caller = RAM_BANK;
@@ -28,33 +28,51 @@ static void saidScript(void)
     memset(&file, 0, sizeof(file));
     file.logicCode = b10BankedAlloc(sizeof(script), &bank);
     file.codeBank = bank;
-    file.codeSize = 14;
+    file.codeSize = 17;
     memCpyBanked(file.logicCode, script, bank, sizeof(script));
     entry.loaded = TRUE;
     entry.data = &logicFiles[250];
     b5SetLogicEntry(&entry, 250);
     b5SetLogicFile(&file, 250);
-    inputWords[0] = 0x1234;
+    inputWords[0] = 0x1202;
     inputWords[1] = 0x4321;
     numInputWords = 2;
-    flag[2] = TRUE; flag[4] = FALSE; var[250] = 0;
-    auditOutput("REST-OF-LINE BYTECODE MUST MATCH; ");
+    flag[2] = TRUE; flag[4] = FALSE; var[250] = var[251] = 0;
+    auditOutput("0x1201 MUST REJECT 0x1202; ");
     executeLogic(&logics[250], 250);
-    auditCheck(var[250] == 77 && flag[4], "REST-OF-LINE SAID REJECTED MATCH OR SKIPPED WRONG BYTECODE");
+    auditCheck(!var[250] && var[251] == 88 && !flag[4], "SAID TREATED ORDINARY 0x1201 AS ANY_WORD");
     auditCheck(RAM_BANK == caller, "SAID SCRIPT LOST CALLER BANK");
+
+    inputWords[0] = 0x1201;
+    flag[2] = TRUE; flag[4] = FALSE; var[250] = var[251] = 0;
+    auditOutput("EQUAL 16-BIT SAID ID WITH REST-OF-LINE MUST MATCH; ");
+    executeLogic(&logics[250], 250);
+    auditCheck(var[250] == 77 && var[251] == 88 && flag[4], "SAID FAILED EQUAL 16-BIT ID OR FOLLOWING STATEMENT");
+
+    script[3] = 1; script[4] = 0;
+    memCpyBanked(file.logicCode, script, bank, sizeof(script));
+    inputWords[0] = 0xabcd;
+    flag[2] = TRUE; flag[4] = FALSE; var[250] = var[251] = 0;
+    auditOutput("ANY_WORD MUST MATCH DIFFERING HIGH BYTE WITH REST-OF-LINE; ");
+    executeLogic(&logics[250], 250);
+    auditCheck(var[250] == 77 && var[251] == 88 && flag[4], "ANY_WORD FAILED HIGH-BYTE WILDCARD OR FOLLOWING STATEMENT");
+
     /* A stale second word must not satisfy a test beyond the current input. */
+    script[3] = 0x34; script[4] = 0x12;
+    inputWords[0] = 0x1234; inputWords[1] = 0x4321;
     script[2] = 3;
     script[5] = 0x21; script[6] = 0x43;
     script[7] = 0x0f; script[8] = 0x27;
     script[9] = 255; script[10] = 3; script[11] = 0;
-    script[12] = 3; script[13] = 250; script[14] = 77; script[15] = 0;
-    file.codeSize = 16;
+    script[12] = 3; script[13] = 250; script[14] = 77;
+    script[15] = 3; script[16] = 251; script[17] = 88; script[18] = 0;
+    file.codeSize = 19;
     b5SetLogicFile(&file, 250);
     memCpyBanked(file.logicCode, script, bank, sizeof(script));
     numInputWords = 1;
-    flag[2] = TRUE; flag[4] = FALSE; var[250] = 0;
+    flag[2] = TRUE; flag[4] = FALSE; var[250] = var[251] = 0;
     executeLogic(&logics[250], 250);
-    auditCheck(!var[250] && !flag[4], "SAID MATCHED STALE WORDS PAST CURRENT INPUT COUNT");
+    auditCheck(!var[250] && var[251] == 88 && !flag[4], "SAID MATCHED STALE WORDS OR SKIPPED FOLLOWING STATEMENT");
     b5SetLogicEntry(&saved, 250);
     auditCheck(b10BankedDealloc(file.logicCode, bank), "SAID SCRIPT LEAKED BYTECODE BUFFER");
 }
