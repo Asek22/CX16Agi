@@ -132,6 +132,7 @@ void bAMenuChildInit()
 {
 	int i;
 
+	asm("php");                         // Preserve the caller's IRQ state
 	asm("sei");                         // Disable interrupts during initialization
 
 	for (i = 0; i < MAX_MENUS * MAX_MENU_CHILDREN; i++)
@@ -139,7 +140,9 @@ void bAMenuChildInit()
 		the_menuChildren[i].controller = NOT_ASSOCIATED;
 		the_menuChildren[i].text = NULL;
 	}
-	REENABLE_INTERRUPTS();
+	asm("lda #%w", VSYNC_BIT);
+	asm("sta %w", VERA_ISR);             // Acknowledge VSYNC without changing caller state
+	asm("plp");
 }
 
 // ================================================================
@@ -309,11 +312,21 @@ void bASetMenuChild(MENU* menu, byte menuNo)
 char* bAStoreMessageInBuffer(LOGICFile* currentLogicFile, byte messNum)
 {
 	char* messData,*result;
-	byte messLength;
+	size_t messLength;
+	unsigned int used;
 
 
 	messData = getMessagePointer(currentLog, messNum - 1);
 	messLength = strLenBanked(messData, currentLogicFile->messageBank) + 1;
+	if ((unsigned int)nextMenuTextBufferAddr < (unsigned int)menuTextBuffer)
+	{
+		return NULL;
+	}
+	used = (unsigned int)nextMenuTextBufferAddr - (unsigned int)menuTextBuffer;
+	if (used > MENU_TEXT_BUFFER_SIZE || messLength > MENU_TEXT_BUFFER_SIZE - used)
+	{
+		return NULL;
+	}
 	
 	memCpyBankedBetween((byte*)nextMenuTextBufferAddr, MENU_BANK, (byte*)messData, currentLogicFile->messageBank, messLength);
 
@@ -348,6 +361,11 @@ void bASetMenu(byte messNum)
 	
 	
 	newMenu.text = bAStoreMessageInBuffer(&currentLogicFile, messNum);
+	if (newMenu.text == NULL)
+	{
+		REENABLE_INTERRUPTS();
+		return;
+	}
 	newMenu.controller = NOT_ASSOCIATED;
 	/* Create new menu and allocate space for MAX_MENU_SIZE items */
 
@@ -415,6 +433,11 @@ void bASetMenuItem(int messNum, int controllerNum)
 	byte menuTextLength;
 	
 	asm("sei");
+	if (numOfMenus == 0)
+	{
+		REENABLE_INTERRUPTS();
+		return;
+	}
 
 	b5GetLogicFile(&currentLogicFile, currentLog);
 
@@ -424,6 +447,11 @@ void bASetMenuItem(int messNum, int controllerNum)
 	event.activated = 0;
 
 	childMenu.text = bAStoreMessageInBuffer(&currentLogicFile, messNum);
+	if (childMenu.text == NULL)
+	{
+		REENABLE_INTERRUPTS();
+		return;
+	}
 	childMenu.controller = controllerNum;
 
 	bASetMenuChild(&childMenu, numOfMenus - 1);
