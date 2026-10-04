@@ -1731,15 +1731,21 @@ void b4Get_string() // 5, 0x00
 void b4Word_to_string() // 2, 0x00 
 {
 	int stringNum, wordNum;
-	char* stringPtr;
-	size_t length;
+	char wordText[80];
+	size_t length = 0, copyLength;
 
 	stringNum = loadAndIncWinCode();
 	wordNum = loadAndIncWinCode();
+	if (stringNum < 0 || stringNum >= sizeof(string) / sizeof(string[0]) ||
+		wordNum < 0 || wordNum >= sizeof(b7WordText) / sizeof(b7WordText[0])) return;
 
-	stringPtr = b7GetInternalStringPtr(stringNum, &length);
+	memCpyBanked((byte*)wordText, (byte*)b7WordText[wordNum], STRING_BANK, sizeof(wordText));
+	while (length < sizeof(wordText) && wordText[length]) length++;
+	copyLength = length;
+	if (copyLength >= sizeof(string[stringNum])) copyLength = sizeof(string[stringNum]) - 1;
+	wordText[copyLength] = 0;
 
-	memCpyBanked((byte*)&b7WordText[wordNum], (byte*)stringPtr, STRING_BANK, length);
+	memCpyBanked((byte*)string[stringNum], (byte*)wordText, PARSER_BANK, copyLength + 1);
 	return;
 }
 
