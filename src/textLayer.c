@@ -423,9 +423,17 @@ void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, by
 	int i;
 	size_t messageSize = strLenBanked(message, messageBank) + 1;
 	long displayAddressCopyPaletteTo;
-	byte textWidth = boxWidth;
+	byte textWidth;
 	byte numberOfLines = 1, maxWidth;
-	size_t maxMessageSize = boxWidth ? TEXTBUFFER_SIZE : TEXTBUFFER_SIZE * 2; //If there is no box, we can overflow into buffer 2 for a bigger message.
+	size_t maxMessageSize;
+
+	if (boxWidth)
+	{
+		if (boxWidth < 4) boxWidth = 4;
+		if (boxWidth >= MAX_CHAR_ACROSS) boxWidth = MAX_CHAR_ACROSS - 1;
+	}
+	textWidth = boxWidth;
+	maxMessageSize = boxWidth ? TEXTBUFFER_SIZE : TEXTBUFFER_SIZE * 2; //If there is no box, we can overflow into buffer 2 for a bigger message.
 
 	currentTextBuffer = b3TextBuffer1;
 
@@ -473,7 +481,9 @@ void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, by
 
 				if (boxWidth && maxWidth)
 				{
-					boxWidth = maxWidth + 2;
+					boxWidth = maxWidth >= MAX_CHAR_ACROSS - 2
+						? MAX_CHAR_ACROSS - 1
+						: maxWidth + 2;
 				}
 			}
 		}
