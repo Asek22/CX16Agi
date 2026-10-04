@@ -45,6 +45,7 @@ extern void interpreter20AuditCases(void);
 extern void blit20AuditCases(void);
 extern void upload20AuditCases(void);
 extern void runtime20AuditCases(void);
+extern void priority20AuditCases(void);
 static void makeObjects(void)
 {
     objectType object;
@@ -387,6 +388,9 @@ int main(void)
 #endif
 #if defined(AUDIT_CASE_runtime20)
     runtime20AuditCases();
+#endif
+#if defined(AUDIT_CASE_priority20)
+    priority20AuditCases();
 #endif
     output("INVENTORY PASS");
     testExit();

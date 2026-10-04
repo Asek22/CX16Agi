@@ -31,26 +31,31 @@ static void reportCycles(unsigned long value)
     auditOutput("; ");
 }
 
-static void splitCallerCase(void)
+static void splitCallerCase(byte width)
 {
     View view;
     Loop loop;
     Cel cel, returned;
     ViewTable table;
     ViewTableMetadata metadata;
-    VeraSpriteAddress addresses[2];
-    byte rle[3] = {0x1f,0x11,0}, updates[14], row;
+    VeraSpriteAddress addresses[4];
+    byte rle[4], updates[28], row, remaining=width, length=0, slots=((unsigned)width*2+63)/64*2;
     unsigned long begin, elapsed;
     memset(&view,0,sizeof(view)); memset(&loop,0,sizeof(loop));
     memset(&cel,0,sizeof(cel)); memset(&table,0,sizeof(table));
-    view.loaded=TRUE; view.numberOfLoops=1; view.maxCels=2; view.maxVeraSlots=2;
+    while(remaining) {
+        byte run=remaining>15 ? 15 : remaining;
+        rle[length++]=0x10|run; remaining-=run;
+    }
+    rle[length++]=0;
+    view.loaded=TRUE; view.numberOfLoops=1; view.maxCels=2; view.maxVeraSlots=slots;
     view.loops=(Loop*)b10BankedAlloc(sizeof(loop),&view.loopsBank);
-    view.codeBlock=b10BankedAlloc(195,&view.codeBlockBank);
+    view.codeBlock=b10BankedAlloc((unsigned)length*65,&view.codeBlockBank);
     loop.numberOfCels=2; loop.cels=(Cel*)b10BankedAlloc(2*sizeof(cel),&loop.celsBank);
-    loop.allocationWidth=SPR_ATTR_32; loop.allocationHeight=SPR_ATTR_64;
-    cel.width=16; cel.height=65; cel.veraSlotsWidth=1; cel.veraSlotsHeight=2; cel.splitSegments=2;
+    loop.allocationWidth=width==16 ? SPR_ATTR_32 : SPR_ATTR_64; loop.allocationHeight=SPR_ATTR_64;
+    cel.width=width; cel.height=65; cel.veraSlotsWidth=slots/2; cel.veraSlotsHeight=2; cel.splitSegments=slots;
     cel.bmp=view.codeBlock; cel.bitmapBank=view.codeBlockBank;
-    for(row=0;row<65;++row) memCpyBanked(cel.bmp+(unsigned)row*3,rle,cel.bitmapBank,sizeof(rle));
+    for(row=0;row<65;++row) memCpyBanked(cel.bmp+(unsigned)row*length,rle,cel.bitmapBank,length);
     setLoadedCel(&loop,&cel,0); setLoadedCel(&loop,&cel,1);
     setLoadedLoop(&view,&loop,0); setLoadedView(&view,248);
     table.currentView=248; table.xPos=10; table.yPos=100; table.priority=15;
@@ -59,28 +64,31 @@ static void splitCallerCase(void)
     bESetViewMetadata(&view,&table,248,0,0);
     memCpyBanked((byte*)&metadata,(byte*)viewTableMetadata,SPRITE_METADATA_BANK,sizeof(metadata));
     bDResetSpriteMemoryManager();
-    addresses[0]=bDFindFreeVramBlock(SPR_SIZE_32,SPR_SIZE_64);
-    addresses[1]=bDFindFreeVramBlock(SPR_SIZE_32,SPR_SIZE_64);
-    auditCheck(addresses[0] && addresses[1],"split caller fixture VRAM allocation");
-    memCpyBanked((byte*)metadata.veraAddresses,(byte*)addresses,metadata.viewTableMetadataBank,sizeof(addresses));
+    for(row=0;row<slots;++row) {
+        addresses[row]=bDFindFreeVramBlock(width==16 ? SPR_SIZE_32 : SPR_SIZE_64,SPR_SIZE_64);
+        auditCheck(addresses[row]!=0,"split caller fixture VRAM allocation");
+    }
+    memCpyBanked((byte*)metadata.veraAddresses,(byte*)addresses,metadata.viewTableMetadataBank,slots*sizeof(*addresses));
     testDisableInterrupts();
     begin=cycles();
     auditCheck(agiBlit(0,FALSE),"tall split caller rejected valid cached cel");
     elapsed=cycles()-begin;
     reportCycles(elapsed);
     /* Whole-loop splitting cost 226,335 cycles for this identical workload. */
-    auditCheck(elapsed<180000UL,"room blitter regressed cold selected-cel rendering performance");
-    memCpyBanked(updates,bESpritesUpdatedBuffer,SPRITE_UPDATED_BANK,sizeof(updates));
+    auditCheck(width!=16 || elapsed<180000UL,"room blitter regressed cold selected-cel rendering performance");
+    memCpyBanked(updates,bESpritesUpdatedBuffer,SPRITE_UPDATED_BANK,slots*7);
     testEnableInterrupts();
     getLoadedCel(&loop,&returned,0);
     auditCheck(returned.splitCelPointers!=0,"tall narrow cel was never split by production blit");
     getLoadedCel(&loop,&cel,1);
     auditCheck(!cel.splitCelPointers,"room blitter allocated split art for an unselected cel");
-    auditCheck(updates[9]==updates[2] && updates[10]==updates[3],"vertical split moved its second segment horizontally");
-    auditCheck(updates[11]==updates[4]+64,"vertical split left its second segment on the first row");
+    for(row=0;row<slots;++row) {
+        auditCheck(updates[row*7+2]==20+(row%(slots/2))*64 && !updates[row*7+3],"split columns were placed at the wrong horizontal position");
+        auditCheck(updates[row*7+4]==updates[4]+(row/(slots/2))*64,"split rows were placed at the wrong vertical position");
+    }
     bEResetSpritesUpdatedBuffer();
     testDisableInterrupts();
-    for(row=0;row<18;++row) auditCheck(agiBlit(0,FALSE),"room update buffer rejected its valid 36-record boundary");
+    for(row=0;row<36/slots;++row) auditCheck(agiBlit(0,FALSE),"room update buffer rejected its valid 36-record boundary");
     auditCheck(!agiBlit(0,FALSE),"room update buffer accepted records beyond its physical capacity");
     {
         byte* pointer;
@@ -103,5 +111,6 @@ static void splitCallerCase(void)
 void blit20AuditCases(void)
 {
     auditOutput("ROOM SPLIT CALLER CASES; ");
-    splitCallerCase();
+    splitCallerCase(16);
+    splitCallerCase(33);
 }
