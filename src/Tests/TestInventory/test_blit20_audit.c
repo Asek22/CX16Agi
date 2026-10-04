@@ -13,7 +13,13 @@ extern void setLoadedLoop(View* view, Loop* loop, byte number);
 extern void setLoadedCel(Loop* loop, Cel* cel, byte number);
 extern byte bESpritesUpdatedBuffer[];
 extern byte* bESpritesUpdatedBufferPointer;
+extern byte bEBulkAllocatedAddresses[];
+extern byte bDSpriteAllocTable[];
 extern void testDisableInterrupts(void), testEnableInterrupts(void);
+#pragma wrapped-call (push, trampoline, CONTROLLER_BANK)
+void celEightAddressCase(void);
+void exhaustedAllocationCase(void);
+#pragma wrapped-call (pop)
 
 static unsigned long cycles(void)
 {
@@ -108,9 +114,110 @@ static void splitCallerCase(byte width)
     bEResetViewTableMetadata(); b9DiscardView(248); bDResetSpriteMemoryManager();
 }
 
+#pragma code-name (push, "BANKRAM01")
+void celEightAddressCase(void)
+{
+    View view;
+    Loop loop;
+    Cel cel;
+    ViewTable table;
+    ViewTableMetadata metadata;
+    VeraSpriteAddress first[8], target[8];
+    byte rle[]={0x18,0}, row, i;
+    memset(&view,0,sizeof(view)); memset(&loop,0,sizeof(loop));
+    memset(&cel,0,sizeof(cel)); memset(&table,0,sizeof(table));
+    view.loaded=TRUE; view.numberOfLoops=1; view.maxCels=9; view.maxVeraSlots=8;
+    view.loops=(Loop*)b10BankedAlloc(sizeof(loop),&view.loopsBank);
+    view.codeBlock=b10BankedAlloc(sizeof(rle)*8,&view.codeBlockBank);
+    for(row=0;row<8;++row) memCpyBanked(view.codeBlock+(unsigned)row*sizeof(rle),rle,view.codeBlockBank,sizeof(rle));
+    loop.numberOfCels=9; loop.cels=(Cel*)b10BankedAlloc(9*sizeof(cel),&loop.celsBank);
+    memsetBanked((byte*)loop.cels,0,9*sizeof(cel),loop.celsBank);
+    loop.allocationWidth=SPR_ATTR_8; loop.allocationHeight=SPR_ATTR_8;
+    cel.width=8; cel.height=8; cel.splitSegments=1; cel.veraSlotsWidth=1; cel.veraSlotsHeight=1;
+    cel.bmp=view.codeBlock; cel.bitmapBank=view.codeBlockBank;
+    setLoadedCel(&loop,&cel,8); setLoadedLoop(&view,&loop,0); setLoadedView(&view,246);
+    table.currentView=246; table.currentCel=8; table.numberOfCels=9; table.xPos=10; table.yPos=80; table.priority=15;
+    setViewTab(&table,0);
+    bEResetViewTableMetadata(); bEResetSpritePointers(); bEResetSpritesUpdatedBuffer();
+    bESetViewMetadata(&view,&table,246,0,0);
+    memCpyBanked((byte*)&metadata,(byte*)viewTableMetadata,SPRITE_METADATA_BANK,sizeof(metadata));
+    bDResetSpriteMemoryManager();
+    testDisableInterrupts();
+    auditCheck(agiBlit(0,FALSE),"cel8 one-slot fixture rejected valid cel");
+    testEnableInterrupts();
+    memCpyBanked((byte*)first,(byte*)metadata.veraAddresses,metadata.viewTableMetadataBank,sizeof(first));
+    memCpyBanked((byte*)target,(byte*)(metadata.veraAddresses+64),metadata.viewTableMetadataBank,sizeof(target));
+    for(i=0;i<8;++i) auditCheck(target[i]!=0,"cel8 address group was not populated beyond byte 255");
+    for(i=0;i<8;++i) auditCheck(first[i]==0,"cel8 address copy overwrote the first cel group");
+    bEResetSpritesUpdatedBuffer(); bEResetViewTableMetadata(); b9DiscardView(246); bDResetSpriteMemoryManager();
+}
+
+void exhaustedAllocationCase(void)
+{
+    View view;
+    Loop loop;
+    Cel cel;
+    ViewTable table;
+    ViewTableMetadata metadata;
+    VeraSpriteAddress address;
+    byte rle[]={0x18,0}, row, chunk[64], update[7];
+    byte* before;
+    byte* after;
+    unsigned int offset, length, i;
+    memset(&view,0,sizeof(view)); memset(&loop,0,sizeof(loop));
+    memset(&cel,0,sizeof(cel)); memset(&table,0,sizeof(table));
+    view.loaded=TRUE; view.numberOfLoops=1; view.maxCels=1; view.maxVeraSlots=1;
+    view.loops=(Loop*)b10BankedAlloc(sizeof(loop),&view.loopsBank);
+    view.codeBlock=b10BankedAlloc(sizeof(rle)*8,&view.codeBlockBank);
+    for(row=0;row<8;++row) memCpyBanked(view.codeBlock+(unsigned)row*sizeof(rle),rle,view.codeBlockBank,sizeof(rle));
+    loop.numberOfCels=1; loop.cels=(Cel*)b10BankedAlloc(sizeof(cel),&loop.celsBank);
+    loop.allocationWidth=SPR_ATTR_8; loop.allocationHeight=SPR_ATTR_8;
+    cel.width=8; cel.height=8; cel.splitSegments=1; cel.veraSlotsWidth=1; cel.veraSlotsHeight=1;
+    cel.bmp=view.codeBlock; cel.bitmapBank=view.codeBlockBank;
+    setLoadedCel(&loop,&cel,0); setLoadedLoop(&view,&loop,0); setLoadedView(&view,245);
+    table.currentView=245; table.xPos=10; table.yPos=80; table.priority=15;
+    setViewTab(&table,0);
+    bEResetViewTableMetadata(); bEResetSpritePointers(); bEResetSpritesUpdatedBuffer();
+    bESetViewMetadata(&view,&table,245,0,0);
+    memCpyBanked((byte*)&metadata,(byte*)viewTableMetadata,SPRITE_METADATA_BANK,sizeof(metadata));
+
+    bDResetSpriteMemoryManager();
+    for(row=0;row<33;++row) auditCheck(bDFindFreeVramBlock(SPR_SIZE_64,SPR_SIZE_64)!=0,"test could not exhaust VRAM with 64x64 allocations");
+    auditCheck(bDFindFreeVramBlock(SPR_SIZE_32,SPR_SIZE_64)!=0,"test could not exhaust the 32-block VRAM remainder");
+    auditCheck(bDFindFreeVramBlock(SPR_SIZE_16,SPR_SIZE_64)!=0,"test could not exhaust the final 16 VRAM blocks");
+    auditCheck(bDFindFreeVramBlock(SPR_SIZE_8,SPR_SIZE_8)==0,"test did not exhaust real VRAM");
+    for(offset=0;offset<TOTAL_REAL_BLOCKS;offset+=64) {
+        length=TOTAL_REAL_BLOCKS-offset;
+        if(length>sizeof(chunk)) length=sizeof(chunk);
+        memCpyBanked(chunk,bDSpriteAllocTable+offset,SPRITE_MEMORY_MANAGER_BANK,length);
+        for(i=0;i<length;++i) auditCheck(chunk[i]==1,"VRAM exhaustion fixture left an allocator block free");
+    }
+    memsetBanked(bEBulkAllocatedAddresses,0,MAX_BULK_ALLOCATED_SIZE,SPRITE_UPDATED_BANK);
+    memCpyBanked((byte*)&before,(byte*)&bESpritesUpdatedBufferPointer,SPRITE_UPDATED_BANK,sizeof(before));
+    testDisableInterrupts();
+    auditCheck(!agiBlit(0,FALSE),"agiBlit reported success after uncached cel allocation failed");
+    testEnableInterrupts();
+    memCpyBanked((byte*)&after,(byte*)&bESpritesUpdatedBufferPointer,SPRITE_UPDATED_BANK,sizeof(after));
+    auditCheck(after==before,"failed uncached agiBlit published a sprite update");
+    memCpyBanked(update,bESpritesUpdatedBuffer,SPRITE_UPDATED_BANK,sizeof(update));
+    for(i=0;i<sizeof(update);++i) auditCheck(update[i]==0,"failed uncached agiBlit wrote a sprite update");
+    memCpyBanked((byte*)&address,(byte*)metadata.veraAddresses,metadata.viewTableMetadataBank,sizeof(address));
+    auditCheck(address==0,"failed uncached cel allocation populated cached metadata");
+    for(offset=0;offset<TOTAL_REAL_BLOCKS;offset+=64) {
+        length=TOTAL_REAL_BLOCKS-offset;
+        if(length>sizeof(chunk)) length=sizeof(chunk);
+        memCpyBanked(chunk,bDSpriteAllocTable+offset,SPRITE_MEMORY_MANAGER_BANK,length);
+        for(i=0;i<length;++i) auditCheck(chunk[i]==1,"failed uncached cel allocation mutated VRAM ownership");
+    }
+    bEResetSpritesUpdatedBuffer(); bEResetViewTableMetadata(); b9DiscardView(245); bDResetSpriteMemoryManager();
+}
+#pragma code-name (pop)
+
 void blit20AuditCases(void)
 {
     auditOutput("ROOM SPLIT CALLER CASES; ");
     splitCallerCase(16);
     splitCallerCase(33);
+    exhaustedAllocationCase();
+    celEightAddressCase();
 }

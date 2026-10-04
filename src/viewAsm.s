@@ -244,7 +244,10 @@ bEAllocateSpriteMemory:
 
     jsr bEAllocateSpriteMemoryBulkAsm
     bne success
-    jmp restoreBank
+    lda PREVIOUS_BANK
+    sta RAM_BANK
+    lda #FALSE
+    rts
 
 success:
     jmp copyAddresses
@@ -354,37 +357,43 @@ setLoop:
 ; into the loop's address array
 ; -----------------------------------------------------------------------------
 copyAddresses:  
-    ; === ADDRESS CALCULATION FOR THE CURRENT CEL ===
-    ;
-    ; We need the starting byte offset for the group of addresses belonging
-    ; to the current cel. Each cel has MAX_VERA_SLOTS addresses.
-    ;
-    ; Desired slot index = MAX_VERA_SLOTS * currentCel
-    ;
-    ; Because we copy backwards, we actually want the *last* address in that group:
-    ;     last_slot = MAX_VERA_SLOTS * currentCel + (MAX_VERA_SLOTS - 1)
-    ;
-    ; The code computes this using a small optimisation trick:
-    ;
-    ;   A = MAX_VERA_SLOTS * currentCel
-    ;   A = A + MAX_VERA_SLOTS          → MAX_VERA_SLOTS * (currentCel + 1)
-    ;   A = A - 1                       → MAX_VERA_SLOTS * currentCel + (MAX_VERA_SLOTS - 1)
-    ;
-    ; Why (currentCel + 1) - 1 ?
-    ; It's a common 6502 trick to avoid extra instructions or using another register
-    ; when preparing a descending loop. It saves bytes and cycles.
+    ; Address-byte offset = currentCel * MAX_VERA_SLOTS * sizeof(VeraSpriteAddress).
+    ; Accumulate it in 16 bits and advance the base before the backwards copy.
 
-    lda MAX_VERA_SLOTS
+    stz sreg
+    stz sreg + 1
     ldy VIEW_TABLE_CURRENT_CEL
-    jsr mul8x8to8               ; A = MAX_VERA_SLOTS * currentCel
-
+    beq copyAddressesOffsetReady
+copyAddressesOffsetLoop:
     clc
-    adc MAX_VERA_SLOTS          ; A = MAX_VERA_SLOTS * (currentCel + 1)
-    dec                         ; A = MAX_VERA_SLOTS * currentCel + (MAX_VERA_SLOTS - 1)
-    asl                         ; ×2
-    asl                         ; ×4  (4 bytes per C long)
-    adc #$3                     ; +3 to point at the last byte of the 4-byte long
-    tay                         ; Y = final byte offset for backwards write
+    lda sreg
+    adc MAX_VERA_SLOTS
+    sta sreg
+    lda sreg + 1
+    adc #$0
+    sta sreg + 1
+    dey
+    bne copyAddressesOffsetLoop
+
+copyAddressesOffsetReady:
+    asl sreg
+    rol sreg + 1
+    asl sreg
+    rol sreg + 1
+    clc
+    lda LOOP_VERA_ADDRESS
+    adc sreg
+    sta LOOP_VERA_ADDRESS
+    lda LOOP_VERA_ADDRESS + 1
+    adc sreg + 1
+    sta LOOP_VERA_ADDRESS + 1
+
+    ; Copy backwards within the selected cel's address group.
+    lda MAX_VERA_SLOTS
+    asl
+    asl
+    dec
+    tay
 
     ; Set up X as source index into the bulk allocation buffer (3 bytes per address)
     lda MAX_VERA_SLOTS
@@ -2432,4 +2441,3 @@ jsr b9LoopThroughAnimatedObjects
 rts
 
 .endif
-
