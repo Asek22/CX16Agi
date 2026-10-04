@@ -973,7 +973,7 @@ void bETerminateSpriteBuffer()
 	*bESpritesUpdatedBufferPointer++ = 0;
 }
 
-void bEResetInactiveViewTableMetadata(ViewTableMetadata* localViewTableMetadata)
+void bEResetInactiveViewTableMetadata(ViewTableMetadata* localViewTableMetadata, ViewTableMetadata* activeMetadata)
 {
 	boolean stop;
 	byte i;
@@ -985,13 +985,14 @@ void bEResetInactiveViewTableMetadata(ViewTableMetadata* localViewTableMetadata)
 	{
 		memCpyBanked((byte*)&localInactiveMetadata, (byte*)&inActivePtr[i], localViewTableMetadata->inactiveBank, sizeof(ViewTableMetadata));
 
-		if (localInactiveMetadata.loopsVeraAddressesPointers)
-		{
-			b10BankedDealloc((byte*)localInactiveMetadata.loopsVeraAddressesPointers, localInactiveMetadata.viewTableMetadataBank);
-		}
-		else
+		if (!localInactiveMetadata.loopsVeraAddressesPointers)
 		{
 			stop = TRUE;
+		}
+		else if (!activeMetadata || localInactiveMetadata.loopsVeraAddressesPointers != activeMetadata->loopsVeraAddressesPointers ||
+			localInactiveMetadata.viewTableMetadataBank != activeMetadata->viewTableMetadataBank)
+		{
+			b10BankedDealloc((byte*)localInactiveMetadata.loopsVeraAddressesPointers, localInactiveMetadata.viewTableMetadataBank);
 		}
 	}
 }
@@ -1004,6 +1005,15 @@ void bEResetViewTableMetadata()
 
 	for (i = 0; i < SPRITE_SLOTS; i++)
 	{
+		if (viewTableMetadata[i].inactive != NULL)
+		{
+			inActivePtr = (ViewTableMetadata*)viewTableMetadata[i].inactive;
+
+			bEResetInactiveViewTableMetadata(&viewTableMetadata[i], &viewTableMetadata[i]);
+
+			b10BankedDealloc((byte*)viewTableMetadata[i].inactive, viewTableMetadata[i].inactiveBank);
+		}
+
 		if (viewTableMetadata[i].loopsVeraAddressesPointers != NULL)
 		{
 			b10BankedDealloc((byte*)viewTableMetadata[i].loopsVeraAddressesPointers, viewTableMetadata[i].viewTableMetadataBank);
@@ -1012,15 +1022,6 @@ void bEResetViewTableMetadata()
 		viewTableMetadata[i].loopsVeraAddressesPointers = NULL;
 		viewTableMetadata[i].viewTableMetadataBank = NULL;
 		viewTableMetadata[i].viewNum = 0;
-
-		if (viewTableMetadata[i].inactive != NULL)
-		{
-			inActivePtr = (ViewTableMetadata*)viewTableMetadata[i].inactive;
-
-			bEResetInactiveViewTableMetadata(&viewTableMetadata[i]);
-
-			b10BankedDealloc((byte*)viewTableMetadata[i].inactive, viewTableMetadata[i].inactiveBank);
-		}
 
 		viewTableMetadata[i].inactive = NULL;
 		viewTableMetadata[i].inactiveBank = NULL;
@@ -1270,7 +1271,7 @@ void bESwitchMetadata(ViewTable* localViewTab, View* localView, byte viewNum, by
 	{
 		if (localMetadata.inactive != NULL)
 		{
-			bEResetInactiveViewTableMetadata(&localMetadata);
+			bEResetInactiveViewTableMetadata(&localMetadata, &localMetadata);
 
 			b10BankedDealloc((byte*)inActiveMetadataPointer, localMetadata.inactiveBank);
 			localMetadata.inactive = NULL;
@@ -1305,7 +1306,7 @@ void bESwitchMetadata(ViewTable* localViewTab, View* localView, byte viewNum, by
 		activeMetadataSlot = i;
 	}
 
-	if (!active.loopsVeraAddressesPointers) //If the active metadata is not currently in the list add it. If it is we don't need to do anymore
+	if (!active.loopsVeraAddressesPointers || localMetadata.loopsVeraAddressesPointers) //Add a missing active entry or refresh its mutable state before switching away
 	{
 		memCpyBanked((byte*)&inActiveMetadataPointer[activeMetadataSlot], (byte*)&localMetadata, localMetadata.inactiveBank, sizeof(ViewTableMetadata));
 
