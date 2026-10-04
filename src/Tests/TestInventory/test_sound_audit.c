@@ -11,7 +11,6 @@ extern void bBPreComputePeriodicSound(SoundFile* sound, unsigned int* offsets);
 extern unsigned long totalSoundSize, totalBeats;
 
 #define CHANNEL_BUFFER_SIZE ((LOCAL_WORK_AREA_SIZE - 2) / 3)
-static byte channel[CHANNEL_BUFFER_SIZE + 2];
 
 static void stringReturnCase(void)
 {
@@ -31,6 +30,7 @@ static void stringReturnCase(void)
 
 static void resizeReturnCase(void)
 {
+    byte channel[CHANNEL_BUFFER_SIZE + 2];
     unsigned size=100;
     byte bank, oldBank, reuseBank, *block, *oldBlock, *reuse, *returned;
     block=b10BankedAlloc(size,&bank);
@@ -48,6 +48,7 @@ static void resizeReturnCase(void)
 
 static void refillCase(void)
 {
+    byte channel[CHANNEL_BUFFER_SIZE + 2];
     BufferStatus status;
     byte bank, previous, j, note[5], *block, *cursor;
     unsigned i;
@@ -72,6 +73,7 @@ static void refillCase(void)
 
 static void growthCase(void)
 {
+    byte channel[CHANNEL_BUFFER_SIZE + 2];
     BufferStatus status;
     byte bank, oldBank, reuseBank, *block, *oldBlock, *reuse, *cursor;
     unsigned size=100, i;
@@ -104,6 +106,7 @@ static void growthCase(void)
 
 static void precomputeCase(void)
 {
+    byte channel[CHANNEL_BUFFER_SIZE + 2];
     SoundFile sound;
     unsigned offsets[4] = {8,10,12,19};
     byte note[5] = {1,0,0,4,15}, sustained[5] = {255,127,0,4,15};
