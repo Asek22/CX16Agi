@@ -20,6 +20,26 @@ static void loadFixture(const byte* data, unsigned int size)
     auditCheck(remove("object") == 0, "OBJECT fixture cleanup failed");
 }
 
+static void loadPaddedFixture(const byte* data, unsigned int prefixSize, unsigned int size)
+{
+    FILE* file = fopen("object", "wb");
+    byte padding[32] = {0};
+    unsigned int remaining = size - prefixSize;
+    int written, closed;
+
+    auditCheck(file != 0, "OBJECT fixture creation failed");
+    written = fwrite(data, 1, prefixSize, file) == prefixSize;
+    while (written && remaining) {
+        unsigned int chunk = remaining < sizeof(padding) ? remaining : sizeof(padding);
+        written = fwrite(padding, 1, chunk, file) == chunk;
+        remaining -= chunk;
+    }
+    closed = fclose(file);
+    auditCheck(written && closed == 0, "OBJECT fixture write failed");
+    bDLoadObjectFile();
+    auditCheck(remove("object") == 0, "OBJECT fixture cleanup failed");
+}
+
 static int objectCount(void)
 {
     int count;
@@ -27,17 +47,42 @@ static int objectCount(void)
     return count;
 }
 
-static void checkValidObject(byte* data)
+static void checkLoadedObject(void)
 {
     objectType object;
     byte name[sizeof(objectName)];
 
-    loadFixture(data, 6 + sizeof(objectName));
     auditCheck(objectCount() == 1, "complete OBJECT record was rejected");
     bDGetObject(0, &object);
     auditCheck(object.roomNum == 65, "complete OBJECT room was changed");
     memCpyBanked(name, (byte*)object.name, OBJECT_BANK, sizeof(name));
     auditCheck(memcmp(name, objectName, sizeof(name)) == 0, "complete OBJECT name was changed");
+}
+
+static void checkValidObject(byte* data)
+{
+    loadFixture(data, 6 + sizeof(objectName));
+    checkLoadedObject();
+}
+
+static void checkCapacityBoundary(const byte* data, unsigned int prefixSize)
+{
+    byte oldTail, canary = 0xa5, readTail;
+    objectType object;
+
+    loadPaddedFixture(data, prefixSize, OBJ_NAME_CACHE_SIZE);
+    checkLoadedObject();
+
+    memCpyBanked(&oldTail, bDObjData + OBJ_NAME_CACHE_SIZE, OBJECT_BANK, 1);
+    memCpyBanked(bDObjData + OBJ_NAME_CACHE_SIZE, &canary, OBJECT_BANK, 1);
+    loadPaddedFixture(data, prefixSize, OBJ_NAME_CACHE_SIZE + 1);
+    memCpyBanked(&readTail, bDObjData + OBJ_NAME_CACHE_SIZE, OBJECT_BANK, 1);
+    memCpyBanked(bDObjData + OBJ_NAME_CACHE_SIZE, &oldTail, OBJECT_BANK, 1);
+
+    auditCheck(readTail == canary, "oversized OBJECT file overwrote capacity canary");
+    auditCheck(objectCount() == 0, "oversized OBJECT file was accepted");
+    bDGetObject(0, &object);
+    auditCheck(!object.name && !object.roomNum, "oversized OBJECT file left a published entry");
 }
 
 static void checkRejectedObject(byte* data, unsigned int size, const char* message)
@@ -74,6 +119,7 @@ void readerobjectAuditCases(void)
     valid[5] = 65;
     memcpy(valid + 6, objectName, sizeof(objectName));
     checkValidObject(valid);
+    checkCapacityBoundary(valid, sizeof(valid));
 
     for (i = 0; i < sizeof(valid); ++i)
         encrypted[i] = valid[i] ^ avisDurgan[i % 11];

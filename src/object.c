@@ -64,27 +64,29 @@ boolean bDIsObjCrypt(long fileLen, byte* objData)
     return FALSE;
 }
 
-byte bDLoadFile(int* fileLen, byte* buffer)
+boolean bDLoadFile(int* fileLen, byte* buffer)
 {
     byte lfn = b6Cbm_openForSeeking(BD_OBJECT_FILE_NAME);
+    byte extraByte;
   
     if (lfn == NULL) {
         printf("Cannot find file : object\n");
         exit(1);
     }
 
-    for (*fileLen = 0; cbm_read(lfn, buffer++, 1); *fileLen += 1)
-    {
-        if (*fileLen > OBJ_NAME_CACHE_SIZE)
-        {
-            printf(BD_CANNOT_OPEN);
-            exit(0);
-        }
+    for (*fileLen = 0; *fileLen < OBJ_NAME_CACHE_SIZE; ++*fileLen) {
+        if (!cbm_read(lfn, buffer + *fileLen, 1)) break;
+    }
+
+    if (*fileLen == OBJ_NAME_CACHE_SIZE && cbm_read(lfn, &extraByte, 1)) {
+        cbm_close(lfn);
+        printf(BD_CANNOT_OPEN);
+        return FALSE;
     }
 
     cbm_close(lfn);
 
-    return lfn;
+    return TRUE;
 }
 
 /**************************************************************************
@@ -102,12 +104,12 @@ void bDLoadObjectFile()
     unsigned int objectCount;
     unsigned long nameStart, pos;
 
-    bDLoadFile(&fileLen, bDObjData);
     bFNumObjects = 0;
     for (objNum = 0; objNum < MAX_OBJECTS; objNum++) {
         bDObjects[objNum].name = NULL;
         bDObjects[objNum].roomNum = 0;
     }
+    if (!bDLoadFile(&fileLen, bDObjData)) return;
 
     if (fileLen < 3) return;
     if (bDIsObjCrypt(fileLen, bDObjData))
