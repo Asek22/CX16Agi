@@ -385,6 +385,7 @@ ifHandler:
                         @0EResult: ;said() has variable number of args
                         LOAD_CODE_WIN_CODE
                         sta ZP_PTR_CH
+                        stz ZP_PTR_CH + 1
                         INC_CODE
                         LEFT_SHIFT_BY_1 ZP_PTR_CH, ZP_PTR_DISP
                         INC_CODE_BY ZP_PTR_DISP
