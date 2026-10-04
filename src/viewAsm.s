@@ -275,6 +275,8 @@ copyToBlitCelArrayLoop:
 .export _bESetLoop
 _bESetLoop:
     sta ENTRY_NUM               ; entry number for viewsWithSpriteMem flag
+    lda RAM_BANK
+    sta PREVIOUS_BANK            ; preserve the bank before any helper switches
 
     jsr popax
     sta LOOP_VERA_ADDRESS
