@@ -15,7 +15,7 @@ void b1ResetControllers();
 void b1InitControllers();
 void b1AssociateController(byte asciiCode, byte scanCode, byte controller);
 boolean b1SetControllerByPetscii(byte petscii);
-byte b1IsControllerSet(byte controller);
+byte __fastcall__ b1IsControllerSet(byte controller);
 boolean b1SetController(byte controller);
 #pragma wrapped-call (pop)
 

@@ -6,7 +6,9 @@ CONTROLLERS_INC = 1
 .import _b1ControllerBits
 
 .segment "BANKRAM01"
-b1IsControllerSet:              ; controller in X, returns 0/1 in A
+.export _b1IsControllerSet
+_b1IsControllerSet:
+b1IsControllerSet:              ; controller in A, returns 0/1 in A
         tax
         lsr
         lsr

@@ -1,6 +1,7 @@
 #include "audit.h"
 #include "../../keyboard.h"
 #include "../../memoryManager.h"
+#include "../../controllers.h"
 extern byte inputLineDisplayed;
 extern volatile unsigned int vSyncCounter;
 extern void testDisableInterrupts(void);
@@ -11,6 +12,11 @@ void inputAuditCases(void)
 {
     unsigned int start;
     byte i;
+    b1ResetControllers();
+    auditCheck(!b1IsControllerSet(0) && !b1IsControllerSet(255), "CONTROLLER GETTER DID NOT RETURN RESET BITS");
+    b1SetController(254); /* 255 is the unassociated-controller sentinel. */
+    auditCheck(b1IsControllerSet(254) && !b1IsControllerSet(255), "CONTROLLER GETTER LOST ITS C CALLING CONVENTION");
+    b1ResetControllers();
     testDisableInterrupts();
     inputLineDisplayed = FALSE;
     for (i=0; i<40; ++i) testPoke(65, INPUT_ADDRESS + (unsigned long)i*2);
