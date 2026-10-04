@@ -225,6 +225,7 @@ void highCelAddressCase(void)
     memCpyBanked((byte*)&address,(byte*)(metadata.veraAddresses+254),metadata.viewTableMetadataBank,sizeof(address));
     auditCheck(address && testPeek(address)==0x11,"cel 254 did not render its real native pixel");
     /* Repeatable one-slot cel 254 baseline: 22,224 cycles before bounded offset multiplication. */
+    auditCheck(elapsed<19000UL,"high-cel address offset exceeded its native cycle ceiling");
     bEResetSpritesUpdatedBuffer(); bEResetViewTableMetadata(); b9DiscardView(242); bDResetSpriteMemoryManager();
 }
 #pragma code-name (pop)

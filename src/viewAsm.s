@@ -393,22 +393,31 @@ setLoopAddCelOffset:
 ; -----------------------------------------------------------------------------
 copyAddresses:  
     ; Address-byte offset = currentCel * MAX_VERA_SLOTS * sizeof(VeraSpriteAddress).
-    ; Accumulate it in 16 bits and advance the base before the backwards copy.
-
+    ; Multiply the two byte values in eight bounded shift/add steps.
     stz sreg
     stz sreg + 1
-    ldy VIEW_TABLE_CURRENT_CEL
+    lda VIEW_TABLE_CURRENT_CEL
     beq copyAddressesOffsetReady
-copyAddressesOffsetLoop:
+    sta ZP_TMP_26
+    lda MAX_VERA_SLOTS
+    sta ZP_TMP_27
+    stz ZP_TMP_27 + 1
+    ldx #8
+copyAddressesMultiplyLoop:
+    lsr ZP_TMP_26
+    bcc copyAddressesMultiplyShift
     clc
     lda sreg
-    adc MAX_VERA_SLOTS
+    adc ZP_TMP_27
     sta sreg
     lda sreg + 1
-    adc #$0
+    adc ZP_TMP_27 + 1
     sta sreg + 1
-    dey
-    bne copyAddressesOffsetLoop
+copyAddressesMultiplyShift:
+    asl ZP_TMP_27
+    rol ZP_TMP_27 + 1
+    dex
+    bne copyAddressesMultiplyLoop
 
 copyAddressesOffsetReady:
     asl sreg
