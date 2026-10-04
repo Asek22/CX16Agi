@@ -415,10 +415,48 @@ extern char* currentTextBuffer;
 extern long b3PaletteAddress;
 extern byte b3PaletteRows;
 extern byte b3PaletteNumber;
+extern unsigned long inventoryAddress;
+extern byte inventoryBuffer[], inventoryLength, inventoryWrite;
+extern void inventoryTransfer(void);
 
-//Box width is 0 for text that is not in a box, or the width of the box otherwise
-//Supports copying from banks or putting data directly into textbuffer, which is on bank 3
-void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, byte paletteNumber, byte boxWidth, boolean wrap)
+static void b3TextMapTransfer(unsigned long address, byte write)
+{
+	inventoryAddress = address;
+	inventoryLength = 64;
+	inventoryWrite = write;
+	inventoryTransfer();
+}
+
+static void b3CopyTextRows(byte* saved, byte bank, byte firstRow, byte rows, byte restore)
+{
+	byte row, column;
+	unsigned int savedOffset;
+	unsigned long address;
+
+	for (row = 0; row < rows; ++row)
+	{
+		address = MAPBASE + ((unsigned int)firstRow + row) * TILE_LAYER_BYTES_PER_ROW;
+		for (column = 0; column < TILE_LAYER_BYTES_PER_ROW; column += 64)
+		{
+			savedOffset = (unsigned int)row * TILE_LAYER_BYTES_PER_ROW + column;
+			if (restore)
+			{
+				memCpyBanked(inventoryBuffer, saved + savedOffset, bank, 64);
+				b3TextMapTransfer(address + column, TRUE);
+			}
+			else
+			{
+				b3TextMapTransfer(address + column, FALSE);
+				memCpyBanked(saved + savedOffset, inventoryBuffer, bank, 64);
+			}
+		}
+	}
+}
+
+// Box width is 0 for text that is not in a box, or the width of the box otherwise.
+// Supports copying from banks or putting data directly into textbuffer, which is on bank 3.
+static boolean b3DisplayMessageBoxInternal(char* message, byte messageBank, byte row, byte col,
+	byte paletteNumber, byte boxWidth, boolean wrap, byte* saveRows, byte** savedText, byte* savedBank)
 {
 	int i;
 	size_t messageSize = strLenBanked(message, messageBank) + 1;
@@ -426,6 +464,9 @@ void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, by
 	byte textWidth;
 	byte numberOfLines = 1, maxWidth;
 	size_t maxMessageSize;
+	unsigned int mapRow;
+
+	if (savedText) *savedText = 0;
 
 	if (boxWidth)
 	{
@@ -521,17 +562,41 @@ void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, by
 		b3PaletteRows = numberOfLines;
 		b3PaletteNumber = paletteNumber;
 
+		if (savedText)
+		{
+			mapRow = FIRST_ROW + (unsigned int)b3LastBoxStartLine - 1;
+			if (b3LastBoxLines > *saveRows) *saveRows = b3LastBoxLines;
+			if (!*saveRows || mapRow + *saveRows > TILE_LAYER_HEIGHT) return FALSE;
+			*savedText = b10TryBankedAlloc((int)*saveRows * TILE_LAYER_BYTES_PER_ROW, savedBank);
+			if (!*savedText) return FALSE;
+			b3CopyTextRows(*savedText, *savedBank, mapRow, *saveRows, FALSE);
+		}
+
 		b6SetAndWaitForIrqState(DISPLAY_TEXT);
 	}
+	return TRUE;
+}
+
+void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, byte paletteNumber, byte boxWidth, boolean wrap)
+{
+	b3DisplayMessageBoxInternal(message, messageBank, row, col, paletteNumber, boxWidth, wrap, 0, 0, 0);
 }
 
 
 byte b3DisplayManuallyWrappedMessageBox(char* message, byte messageBank, byte row, byte col, byte paletteNumber, byte boxWidth, byte boxHeight)
 {
 	byte ch;
+	byte oldBoxLines = b3LastBoxLines, oldBoxStartLine = b3LastBoxStartLine;
+	byte saveRows = boxHeight, saveBank;
+	byte* savedText = 0;
 
-	b3DisplayMessageBox(message, messageBank, AUTO_CALC_ROW, AUTO_CALC_COLUMN, TEXTBOX_PALETTE_NUMBER, boxWidth, FALSE);
-	b3LastBoxLines = boxHeight;
+	if (!b3DisplayMessageBoxInternal(message, messageBank, AUTO_CALC_ROW, AUTO_CALC_COLUMN,
+		TEXTBOX_PALETTE_NUMBER, boxWidth, FALSE, &saveRows, &savedText, &saveBank))
+	{
+		b3LastBoxLines = oldBoxLines;
+		b3LastBoxStartLine = oldBoxStartLine;
+		return 255;
+	}
 
 	//b3PrintMessageInTextbox(loadAndIncWinCode(), DEFAULT_TEXTBOX_X, DEFAULT_TEXTBOX_Y, DEFAULT_BOX_WIDTH);
 
@@ -541,7 +606,14 @@ byte b3DisplayManuallyWrappedMessageBox(char* message, byte messageBank, byte ro
 		ch >> 8;
 	} while ((ch != KEY_ESC) && (ch != KEY_ENTER));
 
-	b3ClearLastPlacedText();
+	if (savedText)
+	{
+		b3CopyTextRows(savedText, saveBank,
+			FIRST_ROW + b3LastBoxStartLine - 1, saveRows, TRUE);
+		b10BankedDealloc(savedText, saveBank);
+	}
+	b3LastBoxLines = oldBoxLines;
+	b3LastBoxStartLine = oldBoxStartLine;
 
 	return ch;
 }
