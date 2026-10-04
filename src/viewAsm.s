@@ -334,14 +334,47 @@ setLoop:
     GET_STRUCT_8_STORED_OFFSET _offsetOfNumberOfCels, LOOP, NUMBER_OF_CELS
     GET_STRUCT_8_STORED_OFFSET _offsetOfCurrentCel, VIEW_TAB, VIEW_TABLE_CURRENT_CEL 
 
-    ; Calculate pointer to current Cel structure
+    ; Cel offsets fit in one byte only for indexes 0..17.
+    cmp #18
+    bcs setLoopCelOffset16
     ldy _sizeOfCel
     jsr mul8x8to8
+    sta sreg
+    stz sreg + 1
+    bra setLoopAddCelOffset
+
+setLoopCelOffset16:
+    ; Calculate currentCel * sizeof(Cel) in eight bounded shift/add steps.
+    sta ZP_TMP_26
+    lda _sizeOfCel
+    sta ZP_TMP_27
+    stz ZP_TMP_27 + 1
+    stz sreg
+    stz sreg + 1
+    ldx #8
+setLoopCelOffset16Loop:
+    lsr ZP_TMP_26
+    bcc setLoopCelOffset16Shift
     clc
-    adc CEL
+    lda sreg
+    adc ZP_TMP_27
+    sta sreg
+    lda sreg + 1
+    adc ZP_TMP_27 + 1
+    sta sreg + 1
+setLoopCelOffset16Shift:
+    asl ZP_TMP_27
+    rol ZP_TMP_27 + 1
+    dex
+    bne setLoopCelOffset16Loop
+
+setLoopAddCelOffset:
+    clc
+    lda CEL
+    adc sreg
     sta CEL
-    lda #$0
-    adc CEL + 1
+    lda CEL + 1
+    adc sreg + 1
     sta CEL + 1
 
     ; Read view metadata bank

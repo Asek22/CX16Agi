@@ -26,6 +26,7 @@ void exhaustedAllocationCase(void);
 void splitCallerCase(byte width);
 #pragma wrapped-call (pop)
 #pragma wrapped-call (push, trampoline, 0x02)
+void highCelAddressCase(void);
 void reportCycles(const char* label, unsigned long value);
 #pragma wrapped-call (pop)
 
@@ -175,6 +176,59 @@ void celEightAddressCase(void)
     bEResetSpritesUpdatedBuffer(); bEResetViewTableMetadata(); b9DiscardView(246); bDResetSpriteMemoryManager();
 }
 
+#pragma code-name (push, "BANKRAM02")
+void highCelAddressCase(void)
+{
+    View view;
+    Loop loop;
+    Cel cel;
+    ViewTable table;
+    ViewTableMetadata metadata;
+    VeraSpriteAddress address;
+    byte rle[]={0x18,0}, row, bankAfter, success;
+    unsigned long begin, elapsed;
+    memset(&view,0,sizeof(view)); memset(&loop,0,sizeof(loop));
+    memset(&cel,0,sizeof(cel)); memset(&table,0,sizeof(table));
+    view.loaded=TRUE; view.numberOfLoops=1; view.maxCels=255; view.maxVeraSlots=1;
+    view.loops=(Loop*)b10BankedAlloc(sizeof(loop),&view.loopsBank);
+    view.codeBlock=b10BankedAlloc(sizeof(rle)*8,&view.codeBlockBank);
+    for(row=0;row<8;++row) memCpyBanked(view.codeBlock+(unsigned)row*sizeof(rle),rle,view.codeBlockBank,sizeof(rle));
+    loop.numberOfCels=255; loop.cels=(Cel*)b10BankedAlloc(255*sizeof(cel),&loop.celsBank);
+    memsetBanked((byte*)loop.cels,0,255*sizeof(cel),loop.celsBank);
+    loop.allocationWidth=SPR_ATTR_8; loop.allocationHeight=SPR_ATTR_8;
+    cel.width=8; cel.height=8; cel.splitSegments=1; cel.veraSlotsWidth=1; cel.veraSlotsHeight=1;
+    cel.bmp=view.codeBlock; cel.bitmapBank=view.codeBlockBank;
+    setLoadedCel(&loop,&cel,20); setLoadedCel(&loop,&cel,254);
+    setLoadedLoop(&view,&loop,0); setLoadedView(&view,242);
+    table.currentView=242; table.currentCel=20; table.numberOfCels=255; table.xPos=10; table.yPos=80; table.priority=15;
+    setViewTab(&table,0);
+    bEResetViewTableMetadata(); bEResetSpritePointers(); bEResetSpritesUpdatedBuffer();
+    bESetViewMetadata(&view,&table,242,0,0);
+    memCpyBanked((byte*)&metadata,(byte*)viewTableMetadata,SPRITE_METADATA_BANK,sizeof(metadata));
+    bDResetSpriteMemoryManager();
+    testDisableInterrupts();
+    auditCheck(agiBlit(0,FALSE),"agiBlit rejected valid cel 20");
+    testEnableInterrupts();
+    memCpyBanked((byte*)&address,(byte*)(metadata.veraAddresses+20),metadata.viewTableMetadataBank,sizeof(address));
+    auditCheck(address && testPeek(address)==0x11,"cel 20 did not render its real native pixel");
+
+    table.currentCel=254;
+    setViewTab(&table,0);
+    testDisableInterrupts();
+    begin=cycles();
+    bankAfter=directSetLoop(&table,&metadata,&view,metadata.veraAddresses,&success);
+    elapsed=cycles()-begin;
+    testEnableInterrupts();
+    reportCycles("HIGH CEL 254 SETLOOP CYCLES: ",elapsed);
+    auditCheck(bankAfter==0x0e,"high-cel direct bESetLoop did not restore its poisoned caller bank");
+    auditCheck(success,"direct bESetLoop rejected valid cel 254");
+    memCpyBanked((byte*)&address,(byte*)(metadata.veraAddresses+254),metadata.viewTableMetadataBank,sizeof(address));
+    auditCheck(address && testPeek(address)==0x11,"cel 254 did not render its real native pixel");
+    /* Repeatable one-slot cel 254 baseline: 22,224 cycles before bounded offset multiplication. */
+    bEResetSpritesUpdatedBuffer(); bEResetViewTableMetadata(); b9DiscardView(242); bDResetSpriteMemoryManager();
+}
+#pragma code-name (pop)
+
 void exhaustedAllocationCase(void)
 {
     View view;
@@ -273,6 +327,7 @@ void exhaustedAllocationCase(void)
 void blit20AuditCases(void)
 {
     celEightAddressCase();
+    highCelAddressCase();
     splitCallerCase(16);
     splitCallerCase(33);
     exhaustedAllocationCase();
