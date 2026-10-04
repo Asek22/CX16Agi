@@ -191,6 +191,126 @@ static void lookaheadCase(void)
     auditCheck(b10BankedDealloc(sound.soundResource,sound.soundBank),"sound precompute allocation cleanup");
 }
 
+#define SOUND_POOL_FIXTURE_COUNT (MAX_LOADED_SOUNDS + 1)
+#define SOUND_POOL_FIXTURE_FIRST 200
+#define SOUND_FIXTURE_SIZE 512
+#define SOUND_FIXTURE_RECORD_SIZE (SOUND_FIXTURE_SIZE + 5)
+
+#pragma code-name (pop)
+#pragma rodata-name (pop)
+#pragma code-name (push, "BANKRAM0A")
+#pragma rodata-name (push, "BANKRAM0A")
+
+static unsigned soundPoolAllocationCount(void)
+{
+    byte value;
+    unsigned i, count=0;
+    for(i=0;i<ALLOCATION_ARRAY_SIZE;++i) {
+        memCpyBanked(&value,allocationArray+i,MEMORY_MANAGEMENT_BANK,1);
+        count += value != 0;
+    }
+    return count;
+}
+
+void soundPoolBankCase(void)
+{
+    AGIFilePosType position;
+    SoundFile* loadedPointers[SOUND_POOL_FIXTURE_COUNT];
+    SoundFile loaded, lastBefore, lastAfter;
+    byte resource[31], zeroPad[64];
+    byte counter, active, duration, oldSoundEnabled, oldCompletion, fixtureBank, i;
+    byte bankZero=0;
+    byte* oldEntries, *lastResource;
+    FILE* volume;
+    unsigned j, allocations;
+
+    memCpyBanked(&counter,(byte*)&soundLoadCounter,SOUND_BANK,1);
+    auditCheck(counter==0,"sound pool test did not start empty");
+    bBInitSound();
+    memCpyBanked((byte*)&soundLoadCounter,&bankZero,SOUND_BANK,1);
+    oldEntries=b10BankedAlloc(SOUND_POOL_FIXTURE_COUNT*sizeof(AGIFilePosType),&fixtureBank);
+    auditCheck(oldEntries!=NULL,"sound pool directory snapshot allocation");
+    memCpyBankedBetween(oldEntries,fixtureBank,(byte*)&snddir[SOUND_POOL_FIXTURE_FIRST],DIRECTORY_BANK,SOUND_POOL_FIXTURE_COUNT*sizeof(AGIFilePosType));
+
+    memset(resource,0,sizeof(resource)); memset(zeroPad,0,sizeof(zeroPad));
+    resource[0]=0x12; resource[1]=0x34; resource[2]=8;
+    resource[3]=(byte)SOUND_FIXTURE_SIZE;
+    resource[4]=(byte)(SOUND_FIXTURE_SIZE>>8);
+    resource[5]=8; resource[7]=15; resource[9]=17; resource[11]=19;
+    volume=fopen("vol.8","wb");
+    auditCheck(volume!=NULL,"sound pool volume fixture creation");
+    for(i=0;i<SOUND_POOL_FIXTURE_COUNT;++i) {
+        memset(&position,0,sizeof(position));
+        position.fileNum=8;
+        position.filePos=(unsigned long)i*SOUND_FIXTURE_RECORD_SIZE;
+        memCpyBanked((byte*)&snddir[SOUND_POOL_FIXTURE_FIRST+i],(byte*)&position,DIRECTORY_BANK,sizeof(position));
+        resource[13]=i+1; resource[14]=0; resource[15]=1; resource[16]=0; resource[17]=15;
+        for(j=18;j<26;++j) resource[j]=0xff;
+        auditCheck(fwrite(resource,1,sizeof(resource),volume)==sizeof(resource),"sound resource fixture write");
+        for(j=0;j<7;++j) auditCheck(fwrite(zeroPad,1,sizeof(zeroPad),volume)==sizeof(zeroPad),"sound resource padding write");
+        auditCheck(fwrite(zeroPad,1,38,volume)==38,"sound resource tail write");
+    }
+    fclose(volume);
+
+    for(i=0;i<MAX_LOADED_SOUNDS;++i) bBLoadSoundFile(SOUND_POOL_FIXTURE_FIRST+i);
+    memCpyBanked((byte*)loadedPointers,(byte*)&bBLoadedSoundsPointer[SOUND_POOL_FIXTURE_FIRST],SOUND_BANK,MAX_LOADED_SOUNDS*sizeof(*loadedPointers));
+    for(i=0;i<MAX_LOADED_SOUNDS;++i) {
+        auditCheck(loadedPointers[i]==&bBLoadedSounds[i],"sound IDs did not occupy distinct pool slots");
+        memCpyBanked((byte*)&loaded,(byte*)loadedPointers[i],SOUND_BANK,sizeof(loaded));
+        memCpyBanked(&duration,loaded.soundResource+8,loaded.soundBank,1);
+        auditCheck(duration==i+1,"SOUND ID loaded the wrong volume fixture");
+    }
+
+    allocations=soundPoolAllocationCount();
+    bBLoadSoundFile(SOUND_POOL_FIXTURE_FIRST+5);
+    memCpyBanked((byte*)loadedPointers,(byte*)&bBLoadedSoundsPointer[SOUND_POOL_FIXTURE_FIRST],SOUND_BANK,MAX_LOADED_SOUNDS*sizeof(*loadedPointers));
+    auditCheck(loadedPointers[5]==&bBLoadedSounds[5],"loading an existing sound changed its owner");
+    auditCheck(allocations==soundPoolAllocationCount(),"loading an existing sound allocated a duplicate");
+
+    memCpyBanked((byte*)&lastBefore,(byte*)loadedPointers[MAX_LOADED_SOUNDS-1],SOUND_BANK,sizeof(lastBefore));
+    lastResource=lastBefore.soundResource;
+    allocations=soundPoolAllocationCount();
+    bBLoadSoundFile(SOUND_POOL_FIXTURE_FIRST+MAX_LOADED_SOUNDS);
+    memCpyBanked((byte*)&lastAfter,(byte*)loadedPointers[MAX_LOADED_SOUNDS-1],SOUND_BANK,sizeof(lastAfter));
+    auditCheck(lastAfter.soundResource==lastResource,"31st SOUND load overwrote slot 29 owned by the prior ID");
+    memCpyBanked((byte*)loadedPointers,(byte*)&bBLoadedSoundsPointer[SOUND_POOL_FIXTURE_FIRST],SOUND_BANK,sizeof(loadedPointers));
+    auditCheck(loadedPointers[MAX_LOADED_SOUNDS]==NULL,"full sound pool published an unowned ID");
+    memCpyBanked(&counter,(byte*)&soundLoadCounter,SOUND_BANK,1);
+    auditCheck(counter==MAX_LOADED_SOUNDS,"sound pool count did not reach its capacity");
+    auditCheck(allocations==soundPoolAllocationCount(),"full sound pool failure allocated a resource");
+
+    bBDiscardSoundFile(SOUND_POOL_FIXTURE_FIRST+7);
+    bBLoadSoundFile(SOUND_POOL_FIXTURE_FIRST+MAX_LOADED_SOUNDS);
+    memCpyBanked((byte*)loadedPointers,(byte*)&bBLoadedSoundsPointer[SOUND_POOL_FIXTURE_FIRST],SOUND_BANK,sizeof(loadedPointers));
+    auditCheck(loadedPointers[7]==NULL && loadedPointers[MAX_LOADED_SOUNDS]==&bBLoadedSounds[7],"sound loader did not reuse a discarded pool hole");
+    memCpyBanked((byte*)&lastAfter,(byte*)loadedPointers[MAX_LOADED_SOUNDS],SOUND_BANK,sizeof(lastAfter));
+    auditCheck(lastAfter.soundResource!=NULL,"reused sound slot was not published after loading");
+    memCpyBanked(&duration,lastAfter.soundResource+8,lastAfter.soundBank,1);
+    auditCheck(duration==SOUND_POOL_FIXTURE_COUNT,"hole reuse published the wrong SOUND fixture");
+    bBLoadSoundFile(SOUND_POOL_FIXTURE_FIRST+MAX_LOADED_SOUNDS);
+    memCpyBanked(&counter,(byte*)&soundLoadCounter,SOUND_BANK,1);
+    auditCheck(counter==MAX_LOADED_SOUNDS,"sound pool high-water count changed after hole reuse");
+
+    oldSoundEnabled=flag[9]; oldCompletion=flag[42];
+    flag[9]=TRUE; flag[42]=FALSE;
+    bBPlaySound(SOUND_POOL_FIXTURE_FIRST+SOUND_POOL_FIXTURE_COUNT,42);
+    memCpyBanked(&active,(byte*)&bBChannelsPlaying,SOUND_BANK,1);
+    auditCheck(flag[42] && !active,"playing a null sound did not finish safely");
+    flag[9]=oldSoundEnabled; flag[42]=oldCompletion;
+
+    for(i=0;i<SOUND_POOL_FIXTURE_COUNT;++i) bBDiscardSoundFile(SOUND_POOL_FIXTURE_FIRST+i);
+    memCpyBanked(&counter,(byte*)&soundLoadCounter,SOUND_BANK,1);
+    auditCheck(counter==0,"sound pool cleanup left occupied slots");
+    memCpyBankedBetween((byte*)&snddir[SOUND_POOL_FIXTURE_FIRST],DIRECTORY_BANK,oldEntries,fixtureBank,SOUND_POOL_FIXTURE_COUNT*sizeof(AGIFilePosType));
+    auditCheck(b10BankedDealloc(oldEntries,fixtureBank),"sound pool directory snapshot cleanup");
+    auditCheck(remove("vol.8")==0,"sound pool volume fixture cleanup");
+}
+
+#pragma code-name (pop)
+#pragma rodata-name (pop)
+#pragma code-name (push, "BANKRAM0F")
+#pragma rodata-name (push, "BANKRAM0F")
+
 static void whiteNoiseDurationCase(void)
 {
     SoundFile sound;
@@ -229,6 +349,8 @@ void soundAuditBankCases(void)
     precomputeCase();
     auditOutput("sound multi-refill lookahead case; ");
     lookaheadCase();
+    auditOutput("sound bounded pool production-load case; ");
+    soundPoolBankCase();
     whiteNoiseDurationCase();
     auditOutput("sound audit cases passed; ");
 }

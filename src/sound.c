@@ -609,7 +609,7 @@ void bBPrecomputeValues(SoundFile* soundFile, unsigned int* soundChannelOffSets)
 	// If periodic sound is detected and noise channel has volume, perform precomputation for periodic sound.
 	if (periodicSoundDetected && noiseChHasVolume)
 	{
-		bBPreComputePeriodicSound(&bBLoadedSounds[soundLoadCounter], soundChannelOffSets);
+		bBPreComputePeriodicSound(soundFile, soundChannelOffSets);
 	}
 }
 
@@ -618,7 +618,7 @@ void bBLoadSoundFile(int soundNum) {
 
 	AGIFile tempAGI;               // Temporary AGI file structure for sound file code
 	AGIFilePosType agiFilePosType;
-	byte i;
+	byte loadedSoundNum;
 	unsigned int soundChannelOffSets[NO_CHANNELS];  // Offsets to channel data in sound file
 
 	if(bBLoadedSoundsPointer[soundNum])
@@ -626,30 +626,36 @@ void bBLoadSoundFile(int soundNum) {
 		return;
 	}
 
+	// Reuse an empty slot; soundLoadCounter is only the occupied high-water mark.
+	for (loadedSoundNum = 0; loadedSoundNum < MAX_LOADED_SOUNDS; ++loadedSoundNum)
+	{
+		if (bBLoadedSounds[loadedSoundNum].soundResource == NULL) break;
+	}
+	if (loadedSoundNum == MAX_LOADED_SOUNDS) return;
+
 	// Gets logic directory entry for sound file number and loads AGI file
 	b10GetLogicDirectory(&agiFilePosType, &snddir[soundNum]);
+	if (agiFilePosType.filePos == EMPTY) return;
 	b6LoadAGIFile(SOUND, &agiFilePosType, &tempAGI);
+	if (tempAGI.code == NULL) return;
 
 	// Save references to loaded sound resource data and bank info
-	bBLoadedSounds[soundLoadCounter].soundResource = tempAGI.code;
-	bBLoadedSounds[soundLoadCounter].soundBank = tempAGI.codeBank;
-	bBLoadedSoundsPointer[soundNum] = &bBLoadedSounds[soundLoadCounter];
+	bBLoadedSounds[loadedSoundNum].soundResource = tempAGI.code;
+	bBLoadedSounds[loadedSoundNum].soundBank = tempAGI.codeBank;
 	totalSoundSize = tempAGI.totalSize;
 
 	// Copy sound channel offsets from the beginning of code resource
 	memCpyBanked((byte*)soundChannelOffSets, tempAGI.code, tempAGI.codeBank, NO_CHANNELS * 2);
 
 	// Set channel pointers in loaded sound struct
-	bBSetChannelOffsets(tempAGI.code, &bBLoadedSounds[soundLoadCounter], soundChannelOffSets);
+	bBSetChannelOffsets(tempAGI.code, &bBLoadedSounds[loadedSoundNum], soundChannelOffSets);
 
 	// Precompute frequency and volume values for loaded sound
-	bBPrecomputeValues(&bBLoadedSounds[soundLoadCounter], soundChannelOffSets);
+	bBPrecomputeValues(&bBLoadedSounds[loadedSoundNum], soundChannelOffSets);
 
-	// Increment sound load counter if space available
-	if (soundLoadCounter < MAX_LOADED_SOUNDS - 1)
-	{
-		soundLoadCounter++;
-	}
+	// Publish only after the resource is fully converted and keep the high-water mark current.
+	bBLoadedSoundsPointer[soundNum] = &bBLoadedSounds[loadedSoundNum];
+	if (loadedSoundNum >= soundLoadCounter) soundLoadCounter = loadedSoundNum + 1;
 }
 
 extern unsigned int bBCh1Ticks;
@@ -682,6 +688,13 @@ void bBPlaySound(byte soundNum, byte endSoundFlag)
 	asm("sei"); // Disable interrupts to initialize sound playback safely
 
 	if(!flag[9])
+	{
+		flag[endSoundFlag] = TRUE;
+		REENABLE_INTERRUPTS();
+		return;
+	}
+
+	if (!bBLoadedSoundsPointer[soundNum])
 	{
 		flag[endSoundFlag] = TRUE;
 		REENABLE_INTERRUPTS();
