@@ -665,6 +665,7 @@ void b6LoadPictureFile(int picFileNum)
 	PictureFile loadedPicture;
 
 	b0CGetLoadedPicture(&loadedPicture, picFileNum);
+	if (loadedPicture.loaded && loadedPicture.data) return;
 
 	b10GetLogicDirectory(&agiFilePosType, &picdir[picFileNum]);
 
