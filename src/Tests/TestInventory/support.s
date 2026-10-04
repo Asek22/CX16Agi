@@ -20,12 +20,13 @@ _testPoke:
     rts
 
 ; Observe visibility at actual VSYNC, then chain the real game/KERNAL IRQ.
-.export _testObserveIrq, _testVisibleFrames, _testVsyncIrqs
-.import _inventoryActive
+.export _testObserveIrq, _testVisibleFrames, _testVsyncIrqs, _testDetailVisibleFrames
+.import _inventoryActive, _inventoryBuffer
 .bss
 savedIrq: .res 2
 _testVisibleFrames: .res 2
 _testVsyncIrqs: .res 2
+_testDetailVisibleFrames: .res 2
 feedActive: .res 1
 feedDelay: .res 1
 .code
@@ -45,7 +46,9 @@ _testObserveIrq:
 observeIrq:
     lda $9f27
     and #1
-    beq @chain
+    bne @vsync
+    jmp @chain
+@vsync:
     inc _testVsyncIrqs
     bne :+
     inc _testVsyncIrqs+1
@@ -56,8 +59,7 @@ observeIrq:
 :
     lda $9f25
     pha
-    and #$fe
-    sta $9f25
+    stz $9f25
     lda $9f20
     pha
     lda $9f21
@@ -73,10 +75,60 @@ observeIrq:
     lda $9f23
     and #12
     cmp #12
-    bne @restore
+    bne @detail
     inc _testVisibleFrames
-    bne @restore
+    bne @detail
     inc _testVisibleFrames+1
+@detail:
+    lda _inventoryActive
+    bne :+
+    jmp @restore
+:
+    lda _inventoryBuffer
+    cmp #$61
+    beq :+
+    cmp #$64
+    beq :+
+    jmp @restore
+:
+    ; Row 18 starts at MAPBASE + 23 * 128 + 4. Read the tile characters
+    ; directly from VERA at VSYNC, skipping each cell's palette byte.
+    lda #$84
+    sta $9f20
+    lda #$e5
+    sta $9f21
+    stz $9f22
+    lda $9f23
+    cmp #$61
+    beq @unknownName
+    cmp #$64
+    bne @restore
+    lda #$86
+    sta $9f20
+    lda $9f23
+    cmp #$61
+    bne @restore
+    lda #$88
+    sta $9f20
+    lda $9f23
+    cmp #$67
+    bne @restore
+    bra @detailVisible
+@unknownName:
+    lda #$86
+    sta $9f20
+    lda $9f23
+    cmp #$67
+    bne @restore
+    lda #$88
+    sta $9f20
+    lda $9f23
+    cmp #$67
+    bne @restore
+@detailVisible:
+    inc _testDetailVisibleFrames
+    bne @restore
+    inc _testDetailVisibleFrames+1
 @restore:
     pla
     sta $9f22

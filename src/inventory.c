@@ -188,13 +188,12 @@ byte inventoryShow(boolean select)
         else if (event == KEY_DOWN && selected+1 < carriedCount) ++selected;
         else if (event == KEY_ENTER && select) { result = carried[selected]; break; }
         else if (event == 'v' || event == 'V' || event == KEY_ENTER) {
-            if (inventoryInspectOpen(carried[selected])) {
-                /* A queued close must still allow one complete visible frame. */
-                waitFrame();
-                waitFrame();
-            }
+            inventoryInspectOpen(carried[selected]);
             getName(carried[selected]);
             line(18, objectName, FALSE);
+            /* Two VSYNCs keep a complete frame visible, even without artwork. */
+            waitFrame();
+            waitFrame();
             do { event = key(); } while (!event);
             inventoryInspectClose();
         }

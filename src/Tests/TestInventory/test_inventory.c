@@ -17,6 +17,7 @@ extern void testPutKey(byte key);
 extern void testObserveIrq(void);
 extern void __fastcall__ testFeedKeys(const byte* keys);
 extern unsigned testVisibleFrames;
+extern unsigned testDetailVisibleFrames;
 extern volatile unsigned testVsyncIrqs;
 extern byte testStatus(void);
 #pragma wrapped-call (push, trampoline, 6)
@@ -250,6 +251,10 @@ static void allocationFailureCases(void)
         ++count;
     }
     check(!inventoryInspectOpen(0), "inspect allocated from an exhausted sprite pool");
+    testDetailVisibleFrames = 0;
+    testPutKey('v'); testPutKey('x'); testPutKey(KEY_ESC);
+    check(inventoryShow(FALSE) == 255, "exhausted-VRAM detail view did not close");
+    check(testDetailVisibleFrames != 0, "exhausted-VRAM name-only detail row erased before VSYNC");
     inventoryInspectClose();
     for (i=0; i<count; ++i) bDDeleteAllocation(sprites[i], SPR_SIZE_64, SPR_SIZE_64);
     checkClosed(); checkBackground();
@@ -363,9 +368,19 @@ int main(void)
     check(testVisibleFrames != 0, "queued close erased artwork before any visible frame");
     check(var[25] == 1 && !inventoryActive, "view did not return to inventory selection");
     checkClosed(); checkBackground();
+    testVisibleFrames = testDetailVisibleFrames = 0;
+    testPutKey('v'); testPutKey('x'); testPutKey(KEY_ESC);
+    check(inventoryShow(FALSE) == 255, "dagger detail view did not close");
+    check(testVisibleFrames >= 2, "dagger art closed before a complete visible frame");
+    checkClosed(); checkBackground();
     bDGetObject(0, &object); object.name += 1; bDSetObject(0, &object);
     check(!inventoryInspectOpen(0), "unknown object received unrelated artwork");
     check(!inventoryInspectOpen(255) && !inventoryInspectOpen(3), "invalid object lookup accepted");
+    testDetailVisibleFrames = 0;
+    testPutKey('v'); testPutKey('x'); testPutKey(KEY_ESC);
+    check(inventoryShow(FALSE) == 255, "unknown name-only detail view did not close");
+    check(testDetailVisibleFrames != 0, "unknown name-only detail row erased before VSYNC");
+    checkClosed(); checkBackground();
     inventoryInspectClose(); checkClosed();
     flag[13] = FALSE;
     testPutKey(KEY_ENTER); testPutKey(KEY_ESC); testPutKey(KEY_ESC);
@@ -374,8 +389,10 @@ int main(void)
     for (i=0; i<3; ++i) { bDGetObject(i, &object); object.roomNum=0; bDSetObject(i, &object); }
     flag[13] = TRUE;
     testPutKey(KEY_ENTER); testPutKey('v'); testPutKey(KEY_ESC);
+    testDetailVisibleFrames = 0;
     b4Status();
     check(var[25] == 255 && !inventoryActive, "empty inventory selected an object");
+    check(testDetailVisibleFrames == 0, "empty inventory displayed a detail row");
     checkClosed(); checkBackground();
     fullInventoryPerformance();
     nameAndPagingCases();
