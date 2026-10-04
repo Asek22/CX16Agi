@@ -1750,10 +1750,9 @@ void b4Parse() // 1, 0x00
 	flag[2] = FALSE;
 	flag[4] = FALSE;
 
-	stringToParse = b7GetInternalStringPtr(stringNum, &length);
-
 	stringNum = loadAndIncWinCode();
-	b7LookupWords(stringToParse);
+	stringToParse = b7GetInternalStringPtr(stringNum, &length);
+	if (stringToParse) b7LookupWords(stringToParse);
 	return;
 }
 

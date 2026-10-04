@@ -69,7 +69,13 @@ int b7GetInputWord(byte number)
 
 char* b7GetInternalStringPtr(byte number, size_t* length)
 {
-	*length = strlen(string[number]);
+	size_t stringLength = 0;
+	if (number >= sizeof(string) / sizeof(string[0])) {
+		*length = 0;
+		return NULL;
+	}
+	while (stringLength < sizeof(string[number]) && string[number][stringLength]) stringLength++;
+	*length = stringLength;
 	return string[number];
 }
 
