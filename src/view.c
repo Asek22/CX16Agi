@@ -2170,34 +2170,35 @@ void bAResetViews()     /* Called after new.room */
 void bAPopulatePrecomputedPriorityTable()
 {
 	int den;
-	int num;
-	int band;   // round-to-nearest; drop "+ den/2" for floor
-	int value;
 	int i;
-	byte priorityToCopy;
+	byte* priorityBuffer = GOLDEN_RAM_WORK_AREA;
+	fix32 numerator, denominator = 0, divisionResult;
+	fix32 roundOffset;
 
-	fix32 numerator, denominator, divisionResult;
-
-	den = 168 - priorityBase;
+	den = PICTURE_HEIGHT - priorityBase;
+	roundOffset = b12FpFromInt(5);
+	if (den > 0)
+	{
+		denominator = b12FpFromInt(PICTURE_HEIGHT - priorityBase) / b12FpFromInt(10);
+	}
 
 	for (i = 0; i < CHAR_MAX; i++)
 	{
 		if (i < priorityBase || den <= 0)
 		{
-			priorityToCopy = MIN_SPRITE_PRIORITY;
-			memCpyBanked(&b9PreComputedPriority[i], &priorityToCopy, VIEW_CODE_BANK_1, 1);
+			priorityBuffer[i] = MIN_SPRITE_PRIORITY;
 		}
 		else
 		{
 			numerator = b12FpFromInt(i - priorityBase);
-			denominator = b12FpFromInt(PICTURE_HEIGHT - priorityBase) / b12FpFromInt(10);
 			divisionResult = numerator / denominator;
-			divisionResult += b12FpFromInt(5);
+			divisionResult += roundOffset;
 
-			priorityToCopy = b12FloorFix32(divisionResult);
-			memCpyBanked(&b9PreComputedPriority[i], &priorityToCopy, VIEW_CODE_BANK_1, 1);
+			priorityBuffer[i] = b12FloorFix32(divisionResult);
 		}
 	}
+
+	memCpyBanked(b9PreComputedPriority, priorityBuffer, VIEW_CODE_BANK_1, CHAR_MAX);
 }
 
 #pragma code-name (pop)

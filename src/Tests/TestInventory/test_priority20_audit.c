@@ -1,8 +1,9 @@
 #include "audit.h"
 #include "../../view.h"
+#include "../../fixed.h"
 #include <string.h>
 #pragma wrapped-call (push, trampoline, SPRITE_METADATA_BANK)
-extern void bESetViewMetadata(View* view, ViewTable* table, byte viewNum, byte tableNum, byte slot);
+extern boolean bESetViewMetadata(View* view, ViewTable* table, byte viewNum, byte tableNum, byte slot);
 extern void bEResetViewTableMetadata(void), bEResetSpritesUpdatedBuffer(void), bEResetSpritePointers(void);
 #pragma wrapped-call (pop)
 #pragma wrapped-call (push, trampoline, LINE_DRAW_BANK)
@@ -13,7 +14,19 @@ extern void setLoadedLoop(View* view, Loop* loop, byte number);
 extern void setLoadedCel(Loop* loop, Cel* cel, byte number);
 extern byte bESpritesUpdatedBuffer[];
 extern void testDisableInterrupts(void), testEnableInterrupts(void);
+extern byte priorityBase, b9PreComputedPriority[];
+extern byte testStatus(void);
 
+#pragma wrapped-call (push, trampoline, CONTROLLER_BANK)
+static void priorityPopulationCase(void);
+static void priority20AuditCasesBanked(void);
+#pragma wrapped-call (pop)
+
+#define PRIORITY_POPULATE_BASELINE_CYCLES 1712466UL
+#define PRIORITY_POPULATE_CYCLE_LIMIT (PRIORITY_POPULATE_BASELINE_CYCLES * 3UL / 4)
+
+#pragma code-name (push, "BANKRAM01")
+#pragma rodata-name (push, "BANKRAM01")
 static void coldBulkSplit(View* view, Loop* loop, Cel* cel, ViewTable* table, byte flipped)
 {
     ViewTableMetadata metadata;
@@ -73,7 +86,46 @@ static void coldBulkSplit(View* view, Loop* loop, Cel* cel, ViewTable* table, by
     testEnableInterrupts();
 }
 
-void priority20AuditCases(void)
+static unsigned long priorityCycles(void)
+{
+    byte a = *(volatile byte*)0x9fb8, b = *(volatile byte*)0x9fb9;
+    byte c = *(volatile byte*)0x9fba, d = *(volatile byte*)0x9fbb;
+    return ((unsigned long)d << 24) | ((unsigned long)c << 16) | ((unsigned)b << 8) | a;
+}
+
+static void priorityPopulationCase(void)
+{
+    byte base = 48, actual, expected, i, savedBank = RAM_BANK;
+    byte savedIrqDisabled = testStatus() & 4;
+    byte digits = 0;
+    unsigned repeat;
+    unsigned long start, elapsed, cycleValue;
+    char cycleDigits[11];
+
+    priorityBase = base;
+    bAPopulatePrecomputedPriorityTable();
+    for (i = 0; i < CHAR_MAX; ++i) {
+        memCpyBanked(&actual, b9PreComputedPriority + i, VIEW_CODE_BANK_1, 1);
+        expected = MIN_PRIORITY;
+        if (i >= base) expected = ((i - base) * 10 + (PICTURE_HEIGHT - base) * 5) / (PICTURE_HEIGHT - base);
+        auditCheck(actual == expected, "precomputed priority table value mismatch");
+    }
+
+    testDisableInterrupts();
+    start = priorityCycles();
+    for (repeat = 0; repeat < 8; ++repeat) bAPopulatePrecomputedPriorityTable();
+    elapsed = (priorityCycles() - start) / 8;
+    cycleValue = elapsed;
+    do { cycleDigits[digits++] = '0' + cycleValue % 10; cycleValue /= 10; } while (cycleValue);
+    auditOutput("PRIORITY TABLE BASELINE CYCLES: 1712466; ");
+    auditOutput("PRIORITY TABLE POPULATE CYCLES: ");
+    while (digits) *(volatile byte*)0x9fbb = cycleDigits[--digits];
+    auditOutput("; ");
+    auditCheck(RAM_BANK == savedBank && (testStatus() & 4), "priority population changed caller bank or IRQ state");
+    if (!savedIrqDisabled) testEnableInterrupts();
+    auditCheck(elapsed <= PRIORITY_POPULATE_CYCLE_LIMIT, "PRIORITY TABLE POPULATION EXCEEDED ITS PERFORMANCE CEILING");
+}
+static void priority20AuditCasesBanked(void)
 {
     View view;
     Loop loop;
@@ -81,19 +133,17 @@ void priority20AuditCases(void)
     ViewTable table;
     ViewTableMetadata metadata;
     VeraSpriteAddress addresses[4];
-    byte rle[65 * 4], updates[30], i, row;
+    byte rleRow[4] = {0x1f, 0x1f, 0x13, 0};
+    byte updates[11], i, row;
     unsigned long second;
     memset(&view,0,sizeof(view)); memset(&loop,0,sizeof(loop));
     memset(&cel,0,sizeof(cel)); memset(&table,0,sizeof(table));
-    for (row = 0; row < 65; ++row) {
-        rle[row * 4] = 0x1f; rle[row * 4 + 1] = 0x1f;
-        rle[row * 4 + 2] = 0x13; rle[row * 4 + 3] = 0;
-    }
     b8SetupLineTables();
     view.loaded=TRUE; view.numberOfLoops=1; view.maxCels=1; view.maxVeraSlots=4;
     view.loops=(Loop*)b10BankedAlloc(sizeof(loop),&view.loopsBank);
-    view.codeBlock=b10BankedAlloc(sizeof(rle),&view.codeBlockBank);
-    memCpyBanked(view.codeBlock,rle,view.codeBlockBank,sizeof(rle));
+    view.codeBlock=b10BankedAlloc(sizeof(rleRow) * 65,&view.codeBlockBank);
+    for (row=0; row<65; ++row)
+        memCpyBanked(view.codeBlock + row * sizeof(rleRow),rleRow,view.codeBlockBank,sizeof(rleRow));
     loop.numberOfCels=1; loop.cels=(Cel*)b10BankedAlloc(sizeof(cel),&loop.celsBank);
     loop.allocationWidth=SPR_ATTR_64; loop.allocationHeight=SPR_ATTR_64;
     cel.width=33; cel.height=65; cel.veraSlotsWidth=2; cel.veraSlotsHeight=2; cel.splitSegments=4;
@@ -141,5 +191,13 @@ void priority20AuditCases(void)
     auditCheck(testPeek(second)==0x11 && testPeek(second+31)==0x11,"mirrored full column sampled beyond its screen span");
     testEnableInterrupts();
     bEResetSpritesUpdatedBuffer(); bEResetViewTableMetadata(); b9DiscardView(247); bDResetSpriteMemoryManager();
+    priorityPopulationCase();
     auditOutput("PRIORITY20 AUDIT PASS\n");
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+
+void priority20AuditCases(void)
+{
+    priority20AuditCasesBanked();
 }
