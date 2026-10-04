@@ -6,6 +6,13 @@
 
 extern byte allocationArray[];
 
+#pragma wrapped-call (push, trampoline, PALETTE_MANAGER_BANK)
+static void readerwordsAuditCasesInBank(void);
+#pragma wrapped-call (pop)
+
+#pragma code-name (push, "BANKRAM0F")
+#pragma rodata-name (push, "BANKRAM0F")
+
 static void writeWordsFile(byte withSynonym)
 {
     static const char word[] = "apple";
@@ -63,7 +70,76 @@ static int dictionarySynonymCount(void)
     return count;
 }
 
-void readerwordsAuditCases(void)
+static void makeIndexedWord(char* word, byte wordLength, int index, char first)
+{
+    byte letter, identityLength = wordLength < 5 ? wordLength - 1 : 4;
+    int value = index;
+    for (letter = 0; letter < wordLength; ++letter) word[letter] = 'x';
+    word[0] = first;
+    for (letter = identityLength; letter > 0; --letter)
+    {
+        word[letter] = (char)('a' + value % 26);
+        value /= 26;
+    }
+    word[wordLength] = 0;
+}
+
+static void writeIndexedWordsFile(int count, byte wordLength, char first, byte sharedPrefix, char* word)
+{
+    static const byte start[] = {0, 2};
+    FILE* file = fopen("words.tok", "wb");
+    byte prefix = 0;
+    int index, letter;
+    auditCheck(file != 0, "indexed WORDS.TOK fixture creation");
+    auditCheck(fwrite(start, 1, sizeof(start), file) == sizeof(start), "indexed WORDS.TOK header write");
+    for (index = 0; index < count; ++index)
+    {
+        makeIndexedWord(word, wordLength, index, first);
+        for (letter = 0; letter < wordLength; ++letter)
+            word[letter] ^= 0x7f;
+        word[wordLength - 1] |= 0x80;
+        prefix = index ? sharedPrefix : 0;
+        auditCheck(fwrite(&prefix, 1, 1, file) == 1, "indexed WORDS.TOK prefix write");
+        auditCheck(fwrite(word, 1, wordLength, file) == wordLength, "indexed WORDS.TOK word write");
+        auditCheck(fputc(index >> 8, file) != EOF && fputc(index, file) != EOF,
+            "indexed WORDS.TOK synonym write");
+    }
+    auditCheck(fclose(file) == 0, "indexed WORDS.TOK fixture close");
+}
+
+static void dictionaryMetadataCapacity(const byte* allocationBaseline, char* query)
+{
+    auditOutput("WORDS.TOK 1500-ENTRY METADATA BOUNDARY; ");
+    writeIndexedWordsFile(1500, 4, 'w', 0, query);
+    b12LoadWords();
+    makeIndexedWord(query, 4, 1499, 'w');
+    auditCheck(dictionaryWordCount() == 1500 && dictionarySynonymCount() == 1499,
+        "1500-entry WORDS.TOK boundary count changed");
+    auditCheck(b12FindSynonymNum(query, RAM_BANK) == 1499,
+        "1500th WORDS.TOK entry was not searchable");
+    b12DiscardWords();
+    auditCheck(dictionaryWordCount() == 0 && dictionarySynonymCount() == 0,
+        "1500-entry dictionary discard left published state");
+    checkAllocationBaseline(allocationBaseline, "1500-entry dictionary allocations were not released");
+    auditCheck(remove("words.tok") == 0, "1500-entry WORDS.TOK fixture cleanup");
+
+    auditOutput("WORDS.TOK 1501-ENTRY METADATA OVERFLOW; ");
+    writeIndexedWordsFile(1501, 4, 'w', 0, query);
+    b12LoadWords();
+    auditCheck(dictionaryWordCount() == 0 && dictionarySynonymCount() == 0,
+        "1501-entry WORDS.TOK metadata overflow was published");
+    makeIndexedWord(query, 4, 1500, 'w');
+    auditCheck(b12FindSynonymNum(query, RAM_BANK) == -1,
+        "1501-entry WORDS.TOK overflow remained searchable");
+    b12DiscardWords();
+    auditCheck(dictionaryWordCount() == 0 && dictionarySynonymCount() == 0,
+        "rejected 1501-entry dictionary discard changed state");
+    checkAllocationBaseline(allocationBaseline, "rejected 1501-entry dictionary leaked allocations");
+    auditCheck(remove("words.tok") == 0, "1501-entry WORDS.TOK fixture cleanup");
+
+}
+
+static void readerwordsAuditCasesInBank(void)
 {
     byte allocationBaseline[ALLOCATION_ARRAY_SIZE];
     char query[MAX_WORD_SIZE];
@@ -92,4 +168,14 @@ void readerwordsAuditCases(void)
     auditCheck(dictionaryWordCount() == 0 && dictionarySynonymCount() == 0, "truncated dictionary discard left published state");
     checkAllocationBaseline(allocationBaseline, "truncated WORDS.TOK entry leaked allocations");
     auditCheck(remove("words.tok") == 0, "truncated WORDS.TOK fixture cleanup");
+
+    dictionaryMetadataCapacity(allocationBaseline, query);
+}
+
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+
+void readerwordsAuditCases(void)
+{
+    readerwordsAuditCasesInBank();
 }

@@ -10,6 +10,7 @@
 ***************************************************************************/
 
 #include <stdio.h>
+#include <limits.h>
 
 #include "general.h"
 #include "words.h"
@@ -35,6 +36,7 @@ const char B12_WORDS_OVERFLOW[] = "Too many words, overflowed\n";
 
 #pragma bss-name (push, "BANKRAM12")
 #define WORDS_TEXT_START_SIZE 4500
+#define WORDS_TEXT_START_WORDS (WORDS_TEXT_START_SIZE / 3)
 char wordsTextStart[WORDS_TEXT_START_SIZE];
 int numWords, numSynonyms;  /* Big difference between the two */
 byte wordBank;
@@ -124,7 +126,8 @@ int b12CalcNumWords(long startPos, int* parsedWordCount, int* parsedSynonymCount
             if (cbm_read(SEQUENTIAL_LFN, &data[0], 1) != 1) return 0;
         } while (data[0] < 0x80);  /* Top bit set marks the end of a word. */
         if (cbm_read(SEQUENTIAL_LFN, &data[0], 2) != 2) return 0;
-        wordCount++;
+        /* 1501 is enough to reject an oversized file; keep the count bounded. */
+        if (wordCount <= WORDS_TEXT_START_WORDS) wordCount++;
         synNum = (byte)data[0] * 256 + (byte)data[1];
         if ((synNum > synMax) && (synNum != 9999)) synMax = synNum;
     }
@@ -356,6 +359,12 @@ void b12LoadWords()
     }
     cbm_close(SEQUENTIAL_LFN);
     if (!parsedWordCount) return;
+    if (parsedWordCount > WORDS_TEXT_START_WORDS ||
+        parsedWordCount > INT_MAX / sizeof(char*) ||
+        parsedWordCount > INT_MAX / sizeof(int)) {
+        printf(B12_WORDS_OVERFLOW);
+        return;
+    }
 
     wordsData = b10BankedAlloc(LARGE_SIZE, data); //This allocation will be swapped by a smaller one if practical in b12CompressAllocation
     wordsDataBank = data[0];
