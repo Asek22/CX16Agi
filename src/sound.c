@@ -688,6 +688,7 @@ void bBPlaySound(byte soundNum, byte endSoundFlag)
 		return;
 	}
 
+	if (bBChannelsPlaying) flag[bBEndSoundFlag] = TRUE;
 
 	// Reset tick counters for all channels
 	bBCh1Ticks = 0;
