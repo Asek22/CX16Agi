@@ -1919,7 +1919,8 @@ callCelToVera:
 	asm("lda %v + 2", _assmULong);
 	asm("sta %w", VERA_ADDRESS_HIGH);
 
-	_assmByte = localViewTab.xPos;
+	/* Priority sampling follows the same screen column as the published segment. */
+	_assmByte = localViewTab.xPos + splitColumn * (SPR_SIZE_64 / 2);
 	asm("lda %v", _assmByte);
 	asm("sta %w", X_VAL);
 
