@@ -11,6 +11,10 @@
 extern byte* b6ReadFileContentsIntoBankedRam(int size, byte* bank);
 #pragma wrapped-call (pop)
 extern byte allocationArray[];
+extern byte viewTabNoToMetaData[], bESpritesUpdatedBuffer[];
+extern byte testStatus(void);
+extern void testDisableInterrupts(void), testEnableInterrupts(void);
+extern boolean agiBlit(byte entry, boolean disableInterrupts);
 
 #pragma wrapped-call (push, trampoline, PALETTE_MANAGER_BANK)
 static void truncatedResourceCase(void);
@@ -19,7 +23,14 @@ static void pictureLoadReuseCase(void);
 static void wideCelCase(byte width);
 static void metadataStrideCase(void);
 static void allocationOwnershipCase(void);
+static void saveAllocationMap(byte* destination, byte bank);
 #pragma wrapped-call (pop)
+
+#pragma wrapped-call (push, trampoline, CONTROLLER_BANK)
+static void viewMetadataCapacityCase(void);
+#pragma wrapped-call (pop)
+
+#define METADATA_CANARY_SIZE 100
 
 #pragma code-name (push, "BANKRAM0F")
 #pragma rodata-name (push, "BANKRAM0F")
@@ -150,8 +161,9 @@ static void pictureLoadReuseCase(void)
     auditCheck(cleaned, "picture reload fixture allocation cleanup");
 }
 #pragma wrapped-call (push, trampoline, SPRITE_METADATA_BANK)
-extern void bESetViewMetadata(View* view, ViewTable* table, byte viewNum, byte tableNum, byte slot);
-extern void bEResetViewTableMetadata(void);
+extern boolean bESetViewMetadata(View* view, ViewTable* table, byte viewNum, byte tableNum, byte slot);
+extern void bEResetViewTableMetadata(void), bEResetSpritesUpdatedBuffer(void), bEResetSpritePointers(void);
+extern byte* bESpritesUpdatedBufferPointer;
 #pragma wrapped-call (pop)
 
 static void wideCelCase(byte width)
@@ -178,6 +190,142 @@ static void wideCelCase(byte width)
     b9DiscardView(249);
     auditCheck(remove("vol.8") == 0, "wide cel fixture cleanup");
 }
+
+#pragma code-name (push, "BANKRAM01")
+#pragma rodata-name (push, "BANKRAM01")
+static byte allocationMapsEqual(byte* first, byte* second, byte bank)
+{
+    memCpyBanked(GOLDEN_RAM_WORK_AREA, first, bank, ALLOCATION_ARRAY_SIZE);
+    memCpyBanked(GOLDEN_RAM_WORK_AREA + ALLOCATION_ARRAY_SIZE, second, bank, ALLOCATION_ARRAY_SIZE);
+    return !memcmp(GOLDEN_RAM_WORK_AREA, GOLDEN_RAM_WORK_AREA + ALLOCATION_ARRAY_SIZE, ALLOCATION_ARRAY_SIZE);
+}
+
+static void viewMetadataCapacityCase(void)
+{
+    static byte resource[] = {0x12,0x34,0,14,0, 0,0,1,0,0,7,0, 1,3,0, 1,1,0,0};
+    byte* blocks[6];
+    byte banks[6];
+    byte savedBank = RAM_BANK, savedIrqDisabled = testStatus() & 4;
+    byte mapping, firstRejected, secondRejected, cachedRejected, blitRejected;
+    byte callerStateOk = TRUE, canaryPreserved = TRUE, i, fill;
+    AGIFilePosType position, oldPosition;
+    FILE* output;
+    View view, originalView;
+    ViewTable table;
+    ViewTableMetadata before, after;
+    byte* cachedMetadata;
+    byte* snapshots;
+    byte snapshotBank;
+    byte* updatedPointer;
+
+    output = fopen("vol.8", "wb");
+    auditCheck(output != 0, "metadata capacity VIEW fixture creation");
+    auditCheck(fwrite(resource, 1, sizeof(resource), output) == sizeof(resource), "metadata capacity VIEW fixture write");
+    fclose(output);
+    memCpyBanked((byte*)&oldPosition, (byte*)&viewdir[248], DIRECTORY_BANK, sizeof(oldPosition));
+    memset(&position, 0, sizeof(position));
+    position.fileNum = 8;
+    memCpyBanked((byte*)&viewdir[248], (byte*)&position, DIRECTORY_BANK, sizeof(position));
+    b9LoadViewFile(248);
+    getLoadedView(&view, 248);
+    auditCheck(view.loaded && view.numberOfLoops == 1 && view.maxCels == 1 && view.maxVeraSlots == 1,
+               "metadata capacity fixture did not load through the real VIEW reader");
+    originalView = view;
+    memset(&table, 0, sizeof(table));
+    snapshots = b10BankedAlloc(2 * ALLOCATION_ARRAY_SIZE, &snapshotBank);
+    auditCheck(snapshots != 0, "metadata capacity allocation snapshot allocation");
+    fill = 0xa5;
+
+    testDisableInterrupts();
+    bEResetViewTableMetadata();
+    saveAllocationMap(snapshots, snapshotBank);
+    view.numberOfLoops = 9;
+    view.maxCels = 101;
+    view.maxVeraSlots = 18;
+    firstRejected = !bESetViewMetadata(&view, &table, 248, 0, 0);
+    memCpyBanked((byte*)&after, (byte*)&viewTableMetadata[0], SPRITE_METADATA_BANK, sizeof(after));
+    memCpyBanked(&mapping, viewTabNoToMetaData, SPRITE_METADATA_BANK, 1);
+    saveAllocationMap(snapshots + ALLOCATION_ARRAY_SIZE, snapshotBank);
+    firstRejected &= !after.loopsVeraAddressesPointers && mapping == SPRITE_SLOTS + 1 &&
+                    allocationMapsEqual(snapshots, snapshots + ALLOCATION_ARRAY_SIZE, snapshotBank);
+    auditCheck(firstRejected, "OVERSIZED VIEW METADATA WRAPPED ITS BANK ALLOCATION SIZE");
+    callerStateOk &= RAM_BANK == savedBank && (testStatus() & 4);
+    bEResetViewTableMetadata();
+
+    for (i = 0; i < 6; ++i) {
+        blocks[i] = b10BankedAlloc(METADATA_CANARY_SIZE, &banks[i]);
+        memsetBanked(blocks[i], fill, METADATA_CANARY_SIZE, banks[i]);
+    }
+    b10BankedDealloc(blocks[1], banks[1]);
+    saveAllocationMap(snapshots, snapshotBank);
+    view = originalView;
+    view.numberOfLoops = 254;
+    view.maxCels = 32;
+    view.maxVeraSlots = 2;
+    secondRejected = !bESetViewMetadata(&view, &table, 248, 0, 0);
+    memCpyBanked(GOLDEN_RAM_WORK_AREA, blocks[2], banks[2], METADATA_CANARY_SIZE);
+    memCpyBanked((byte*)&after, (byte*)&viewTableMetadata[0], SPRITE_METADATA_BANK, sizeof(after));
+    memCpyBanked(&mapping, viewTabNoToMetaData, SPRITE_METADATA_BANK, 1);
+    saveAllocationMap(snapshots + ALLOCATION_ARRAY_SIZE, snapshotBank);
+    for (i = 0; i < METADATA_CANARY_SIZE; ++i) if (GOLDEN_RAM_WORK_AREA[i] != fill) canaryPreserved = FALSE;
+    secondRejected &= !after.loopsVeraAddressesPointers && mapping == SPRITE_SLOTS + 1 &&
+                     allocationMapsEqual(snapshots, snapshots + ALLOCATION_ARRAY_SIZE, snapshotBank) && canaryPreserved;
+    callerStateOk &= RAM_BANK == savedBank && (testStatus() & 4);
+    bEResetViewTableMetadata();
+    for (i = 0; i < 6; ++i) if (i != 1) b10BankedDealloc(blocks[i], banks[i]);
+
+    bEResetViewTableMetadata();
+    view = originalView;
+    cachedRejected = bESetViewMetadata(&view, &table, 248, 0, 0);
+    memCpyBanked((byte*)&before, (byte*)&viewTableMetadata[0], SPRITE_METADATA_BANK, sizeof(before));
+    cachedMetadata = (byte*)before.loopsVeraAddressesPointers;
+    memCpyBanked(&mapping, viewTabNoToMetaData, SPRITE_METADATA_BANK, 1);
+    saveAllocationMap(snapshots, snapshotBank);
+    view.numberOfLoops = 9;
+    view.maxCels = 101;
+    view.maxVeraSlots = 18;
+    cachedRejected &= !bESetViewMetadata(&view, &table, 248, 0, 0);
+    memCpyBanked((byte*)&after, (byte*)&viewTableMetadata[0], SPRITE_METADATA_BANK, sizeof(after));
+    saveAllocationMap(snapshots + ALLOCATION_ARRAY_SIZE, snapshotBank);
+    cachedRejected &= (byte*)after.loopsVeraAddressesPointers == cachedMetadata &&
+                     !memcmp(&before, &after, sizeof(before)) &&
+                     allocationMapsEqual(snapshots, snapshots + ALLOCATION_ARRAY_SIZE, snapshotBank);
+    callerStateOk &= RAM_BANK == savedBank && (testStatus() & 4);
+    bEResetViewTableMetadata();
+
+    view = originalView;
+    view.numberOfLoops = 9;
+    view.maxCels = 101;
+    view.maxVeraSlots = 18;
+    setLoadedView(&view, 248);
+    memset(&table, 0, sizeof(table));
+    table.currentView = 248;
+    setViewTab(&table, 0);
+    bEResetSpritePointers();
+    bEResetSpritesUpdatedBuffer();
+    bDResetSpriteMemoryManager();
+    memCpyBanked((byte*)&updatedPointer, (byte*)&bESpritesUpdatedBufferPointer, SPRITE_UPDATED_BANK, sizeof(updatedPointer));
+    blitRejected = !agiBlit(0, FALSE);
+    memCpyBanked((byte*)&cachedMetadata, (byte*)&bESpritesUpdatedBufferPointer, SPRITE_UPDATED_BANK, sizeof(updatedPointer));
+    blitRejected &= (byte*)cachedMetadata == updatedPointer;
+    callerStateOk &= RAM_BANK == savedBank && (testStatus() & 4);
+    bEResetViewTableMetadata();
+    bDResetSpriteMemoryManager();
+    bEResetSpritesUpdatedBuffer();
+    b10BankedDealloc(snapshots, snapshotBank);
+    RAM_BANK = savedBank;
+    if (!savedIrqDisabled) testEnableInterrupts();
+
+    b9DiscardView(248);
+    memCpyBanked((byte*)&viewdir[248], (byte*)&oldPosition, DIRECTORY_BANK, sizeof(oldPosition));
+    auditCheck(remove("vol.8") == 0, "metadata capacity VIEW fixture cleanup");
+    auditCheck(firstRejected && secondRejected, "OVERSIZED VIEW METADATA WRAPPED ITS BANK ALLOCATION SIZE OR WROTE INTO THE NEXT SEGMENT");
+    auditCheck(cachedRejected, "metadata rejection discarded the prior cached allocation");
+    auditCheck(blitRejected, "agiBlit published sprite updates after metadata allocation rejection");
+    auditCheck(callerStateOk, "metadata rejection changed caller bank or IRQ state");
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
 
 static void metadataStrideCase(void)
 {
@@ -227,6 +375,7 @@ void resource20AuditCases(void)
     auditCheck(length == 13, "banked format returned wrong output length");
     auditCheck(RAM_BANK == callerBank, "banked format changed caller bank");
     metadataStrideCase();
+    viewMetadataCapacityCase();
     wideCelCase(127);
     wideCelCase(128);
     wideCelCase(160);

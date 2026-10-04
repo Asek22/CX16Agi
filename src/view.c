@@ -1047,15 +1047,17 @@ void bEResetSpritesUpdatedBuffer()
 #pragma wrapped-call (pop)
 #define MAX_SLOT_1_SIZED_SPRITE 64
 #define MAX_SPRITE_SIZE 128
-void bESetViewMetadata(View* localView, ViewTable* viewTable, byte viewNum, byte viewTabNo, byte viewMetadataSlot)
+boolean bESetViewMetadata(View* localView, ViewTable* viewTable, byte viewNum, byte viewTabNo, byte viewMetadataSlot)
 {
 	byte i;
+	byte metadataBank;
 	unsigned int maxVeraAddresses;
 	ViewTableMetadata metadata;
-	int numberLoopVeraAddressPointers;
-	int numberVeraAddresses;
-	int numberBackBuffers;
-	int totalAllocationSize;
+	unsigned int numberLoopVeraAddressPointers;
+	unsigned int numberBackBuffers;
+	unsigned long numberVeraAddresses;
+	unsigned long totalAllocationSize;
+	VeraSpriteAddress** newLoopPointers;
 	VeraSpriteAddress** addressBuffer = (VeraSpriteAddress**)GOLDEN_RAM_PARAMS_AREA;
 	VeraSpriteAddress* veraAddressCounter;
 
@@ -1072,54 +1074,64 @@ void bESetViewMetadata(View* localView, ViewTable* viewTable, byte viewNum, byte
 	printf("The max number of vera slots is %d \n", localView->veraSlots);
 #endif
 
-	maxVeraAddresses = localView->maxVeraSlots * localView->maxCels;
+	maxVeraAddresses = (unsigned int)localView->maxVeraSlots * localView->maxCels;
 
 #ifdef VERBOSE_DEBUG_SET_METADATA
 	printf("Max vera addresses is %d\n", maxVeraAddresses);
 #endif
+
+	metadata = viewTableMetadata[viewTabNo];
+
+	numberLoopVeraAddressPointers = localView->numberOfLoops;
+	numberVeraAddresses = (unsigned long)maxVeraAddresses * localView->numberOfLoops;
+	numberBackBuffers = localView->maxVeraSlots;
+	totalAllocationSize = (unsigned long)numberLoopVeraAddressPointers * sizeof(VeraSpriteAddress*) +
+		(numberVeraAddresses + numberBackBuffers) * sizeof(VeraSpriteAddress);
+	if (!totalAllocationSize || totalAllocationSize > MEMORY_MANAGER_BANK_SIZE)
+	{
+		return FALSE;
+	}
+
+	newLoopPointers = (VeraSpriteAddress**)b10TryBankedAlloc((int)totalAllocationSize, &metadataBank);
+	if (!newLoopPointers)
+	{
+		return FALSE;
+	}
+
+	if (metadata.loopsVeraAddressesPointers != NULL)
+	{
+		b10BankedDealloc((byte*)metadata.loopsVeraAddressesPointers, metadata.viewTableMetadataBank);
+	}
 
 	if (viewMetadataSlot == VIEWNO_TO_METADATA_NO_SET)
 	{
 		viewMetadataSlot = nextViewMetadataSlot++;
 	}
 
-	metadata = viewTableMetadata[viewTabNo];
-
-	viewTabNoToMetaData[viewTabNo] = viewMetadataSlot;
-
-	if (metadata.loopsVeraAddressesPointers != NULL)
-	{
-		b10BankedDealloc((byte*)metadata.loopsVeraAddressesPointers, metadata.viewTableMetadataBank);
-
-		//TODO: Deallocate vera as well
-	}
-
-	numberLoopVeraAddressPointers = localView->numberOfLoops;
-	numberVeraAddresses = maxVeraAddresses * localView->numberOfLoops;
-	numberBackBuffers = localView->maxVeraSlots;
-	totalAllocationSize = numberLoopVeraAddressPointers * sizeof(VeraSpriteAddress*) + (numberVeraAddresses + numberBackBuffers) * sizeof(VeraSpriteAddress);
-
 #ifdef VERBOSE_DEBUG_SET_METADATA
 	printf("There are %d loops and %d maxCels\n", localView->numberOfLoops, localView->maxCels);
 #endif
 
-	metadata.loopsVeraAddressesPointers = (VeraSpriteAddress**)b10BankedAlloc(totalAllocationSize, &metadata.viewTableMetadataBank);
+	metadata.loopsVeraAddressesPointers = newLoopPointers;
+	metadata.viewTableMetadataBank = metadataBank;
 
 
 	metadata.veraAddresses = (VeraSpriteAddress*)(metadata.loopsVeraAddressesPointers + numberLoopVeraAddressPointers);
 
-	metadata.backBuffers = (VeraSpriteAddress*)((unsigned int)metadata.veraAddresses + numberVeraAddresses * sizeof(VeraSpriteAddress));
+	metadata.backBuffers = (VeraSpriteAddress*)((unsigned int)metadata.veraAddresses +
+		(unsigned int)(numberVeraAddresses * sizeof(VeraSpriteAddress)));
 	metadata.viewNum = viewNum;
 
 #ifdef VERBOSE_DEBUG_SET_METADATA
 	printf("Allocated the following addresses %p, %p. The size is %d + %d = %d. The bank is %d\n", metadata.loopVeraAddressesPointers, metadata.veraAddresses, loopVeraAddressesPointersSize, veraAddressesSize, totalAllocationSize, metadata.viewTableMetadataBank);
 #endif
 	viewTableMetadata[viewTabNo] = metadata;
+	viewTabNoToMetaData[viewTabNo] = viewMetadataSlot;
 
 #ifdef VERBOSE_DEBUG_SET_METADATA
 	printf("Setting %p on bank %d to size %d\n", metadata.veraAddresses, metadata.viewTableMetadataBank, veraAddressesSize);
 #endif
-	memsetBanked(metadata.loopsVeraAddressesPointers, 0, totalAllocationSize, metadata.viewTableMetadataBank);
+	memsetBanked(metadata.loopsVeraAddressesPointers, 0, (unsigned int)totalAllocationSize, metadata.viewTableMetadataBank);
 
 	veraAddressCounter = metadata.veraAddresses;
 	for (i = 0; i < localView->numberOfLoops; i++)
@@ -1136,7 +1148,8 @@ void bESetViewMetadata(View* localView, ViewTable* viewTable, byte viewNum, byte
 		veraAddressCounter += maxVeraAddresses;
 	}
 
-	memCpyBanked((byte*)metadata.loopsVeraAddressesPointers, (byte*)addressBuffer, metadata.viewTableMetadataBank, localView->numberOfLoops * sizeof(VeraSpriteAddress**));
+	memCpyBanked((byte*)metadata.loopsVeraAddressesPointers, (byte*)addressBuffer, metadata.viewTableMetadataBank,
+		localView->numberOfLoops * sizeof(VeraSpriteAddress**));
 
 	viewTableMetadata[viewTabNo] = metadata;
 
@@ -1144,6 +1157,7 @@ void bESetViewMetadata(View* localView, ViewTable* viewTable, byte viewNum, byte
 	printf("The address of the buffer is %p\n", addressBuffer);
 	printf("The address of the viewTableMD is %p\n", &viewTableMetadata[viewTabNo]);
 #endif
+	return TRUE;
 }
 
 #pragma wrapped-call (push, trampoline, SPRITE_METADATA_BANK)
@@ -1217,7 +1231,7 @@ byte bECreateSpritePalette(byte transparentColor)
 }
 #pragma wrapped-call (pop)
 
-void bESwitchMetadata(ViewTable* localViewTab, View* localView, byte viewNum, byte entryNum)
+boolean bESwitchMetadata(ViewTable* localViewTab, View* localView, byte viewNum, byte entryNum)
 {
 	byte i, inactiveMetadataSlot, activeMetadataSlot;
 	byte end = FALSE;
@@ -1278,11 +1292,10 @@ void bESwitchMetadata(ViewTable* localViewTab, View* localView, byte viewNum, by
 			localMetadata.inactiveBank = NULL;
 			viewTableMetadata[entryNum] = localMetadata;
 
-			bESwitchMetadata(localViewTab, localView, viewNum, entryNum); //Call itself with clear inactive metadata
+			return bESwitchMetadata(localViewTab, localView, viewNum, entryNum); //Call itself with clear inactive metadata
 
 			//TODO: Deallocate vera addresses
 
-			return;
 		}
 	}
 
@@ -1330,7 +1343,11 @@ void bESwitchMetadata(ViewTable* localViewTab, View* localView, byte viewNum, by
 #endif
 
 		viewTableMetadata[entryNum] = localMetadata;
-		bESetViewMetadata(localView, localViewTab, viewNum, entryNum, viewTabNoToMetaData[entryNum]);
+		if (!bESetViewMetadata(localView, localViewTab, viewNum, entryNum, viewTabNoToMetaData[entryNum]))
+		{
+			viewTabNoToMetaData[entryNum] = VIEWNO_TO_METADATA_NO_SET;
+			return FALSE;
+		}
 		localMetadata = viewTableMetadata[entryNum];
 	}
 	else
@@ -1356,6 +1373,7 @@ void bESwitchMetadata(ViewTable* localViewTab, View* localView, byte viewNum, by
 #ifdef  VERBOSE_SWITCH_METADATA
 	printf("End\n");
 #endif
+	return TRUE;
 }
 
 
@@ -1482,7 +1500,11 @@ boolean agiBlit(byte entryNum, boolean disableInterupts)
 #ifdef VERBOSE_SWITCH_METADATA
 		printf("switching to %d for entry %d\n", viewNum, entryNum);
 #endif
-		bESwitchMetadata(&localViewTab, &localView, viewNum, entryNum);
+		if (!bESwitchMetadata(&localViewTab, &localView, viewNum, entryNum))
+		{
+			RAM_BANK = previousBank;
+			return FALSE;
+		}
 		localViewTab.staleCounter = localLoop.numberOfCels;
 	}
 
@@ -1491,7 +1513,11 @@ boolean agiBlit(byte entryNum, boolean disableInterupts)
 #ifdef VERBOSE_DEBUG_NO_BLIT_CACHE
 		printf("set Metadata %d. The vt is %d\n", localViewTab->viewData, entryNum);
 #endif
-		bESetViewMetadata(&localView, &localViewTab, viewNum, entryNum, VIEWNO_TO_METADATA_NO_SET);
+		if (!bESetViewMetadata(&localView, &localViewTab, viewNum, entryNum, VIEWNO_TO_METADATA_NO_SET))
+		{
+			RAM_BANK = previousBank;
+			return FALSE;
+		}
 	}
 
 	localMetadata = viewTableMetadata[entryNum];
