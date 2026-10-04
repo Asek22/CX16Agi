@@ -1690,19 +1690,20 @@ void b4Set_string() // 2, 0x00
 {
 	int stringNum, messNum;
 	char* messagePointer;
+	char messageText[40];
+	size_t length = 0;
 	LOGICFile logicFile;
-
-	b5GetLogicFile(&logicFile, currentLog);
 
 	stringNum = loadAndIncWinCode();
 	messNum = loadAndIncWinCode();
+	if (stringNum < 0 || stringNum >= sizeof(string) / sizeof(string[0])) return;
+	b5GetLogicFile(&logicFile, currentLog);
+	if (messNum <= 0 || messNum > logicFile.numMessages || !logicFile.messages) return;
 	messagePointer = getMessagePointer(currentLog, messNum - 1);
-
-	/*printf("attempting to %p on bank %p to %p. the length is %d\n", string[stringNum - 1], messagePointer, logicFile.messageBank, strLenBanked(messagePointer, logicFile.messageBank));
-
-	strcpyBanked(string[stringNum - 1], messagePointer, logicFile.messageBank);
-
-	asm("stp");*/
+	copyStringFromBanked(messagePointer, messageText, 0, sizeof(messageText), logicFile.messageBank, FALSE);
+	messageText[sizeof(messageText) - 1] = 0;
+	while (length < sizeof(messageText) && messageText[length]) length++;
+	memCpyBanked((byte*)string[stringNum], (byte*)messageText, PARSER_BANK, length + 1);
 
 	return;
 }
