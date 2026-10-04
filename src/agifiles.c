@@ -23,17 +23,23 @@
 #include "decomp.h"
 #include "memoryManager.h"
 
+const char B6_FILE_FLAGS[] = "rb";
+const char B6_NO_FILE[] = "no file : % s.\n";
+
 #pragma rodata-name (push, "BANKRAM06")
 const char B6_OPEN_FLAGS[] = ",S,R";
 const char B6_FILE_AND_FLAGS[] = "%s%s";
-const char B6_FILE_FLAGS[] = "rb";
-const char B6_NO_FILE[] = "no file : % s.\n";
 const char B6_LOG_DIR[] = "logdir";
 const char B6_PIC_DIR[] = "picdir";
 const char B6_VIEW_DIR[] = "viewdir";
 const char B6_SND_DIR[] = "snddir";
 const char B6_VOL[] = "vol.%d";
 #pragma rodata-name (pop)
+
+enum { B6_MAX_SETNAM_LENGTH = 255 };
+#pragma bss-name (push, "BANKRAM06")
+static char fileNameAndFlags[B6_MAX_SETNAM_LENGTH + 1];
+#pragma bss-name (pop)
 
 byte avisDurgan[11] = { 0x41, 0x76, 0x69, 0x73, 0x20, 0x44, 0x75, 0x72, 0x67, 0x61, 0x6E };//https://www.liquisearch.com/what_is_avis_durgan
 
@@ -110,9 +116,14 @@ void printMessagesFromOffsets(AGIFile* AGIData)
 byte b6Cbm_openForSeeking(const char* fileName)
 {
 	byte lfn = SEQUENTIAL_LFN;
-
-	char fileNameAndFlags[FILE_NAME_SIZE + 4];
+	enum {
+		maxFileNameLength = B6_MAX_SETNAM_LENGTH - (sizeof(B6_OPEN_FLAGS) - 1)
+	};
+	byte fileNameLength = 0;
 	byte sec_addr = FILE_OPEN_ADDRESS;
+
+	while (fileNameLength < maxFileNameLength && fileName[fileNameLength]) ++fileNameLength;
+	if (fileName[fileNameLength]) return 0;
 
 	sprintf(&fileNameAndFlags[0], B6_FILE_AND_FLAGS, &fileName[0], B6_OPEN_FLAGS);
 

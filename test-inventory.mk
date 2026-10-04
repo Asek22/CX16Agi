@@ -1,4 +1,5 @@
 INVENTORY_TEST_CC ?= cl65
+INVENTORY_TEST_HOST_CC ?= cc
 INVENTORY_TEST_EMU ?= x16emu
 INVENTORY_TEST_ROM ?= rom.bin
 INVENTORY_TEST_CASE ?= all
@@ -31,6 +32,10 @@ test-inventory:
 	done; \
 	$(INVENTORY_TEST_CC) -t cx16 $(ASFLAGS) -c -o "$$case_dir/objects/support.o" $(INVENTORY_TEST_ROOT)/support.s; \
 	$(INVENTORY_TEST_CC) -t cx16 -C cx16-bank.cfg -o "$$case_dir/agi.cx16" "$$case_dir/objects/"*.o; \
+	if [ "$(INVENTORY_TEST_CASE)" = readerfilename ]; then \
+	  $(INVENTORY_TEST_HOST_CC) -std=c99 -Wall -Wextra -o "$(INVENTORY_TEST_OUT)/create_readerfilename_fixtures" "$(INVENTORY_TEST_ROOT)/create_readerfilename_fixtures.c"; \
+	  (cd "$$case_dir" && "$(abspath $(INVENTORY_TEST_OUT))/create_readerfilename_fixtures"); \
+	fi; \
 	rom=$$(realpath "$(INVENTORY_TEST_ROM)"); prg=$$(realpath "$$case_dir/agi.cx16"); \
 	emu=$$(command -v "$(INVENTORY_TEST_EMU)"); \
 	emu_status=0; \

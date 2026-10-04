@@ -58,6 +58,7 @@ extern void readerdirAuditCases(void);
 extern void readerwordsAuditCases(void);
 extern void readerobjectAuditCases(void);
 extern void readerdebugAuditCases(void);
+extern void readerfilenameAuditCases(void);
 extern void graphicsapiAuditCases(void);
 static void makeObjects(void)
 {
@@ -467,6 +468,9 @@ int main(void)
 #endif
 #if defined(AUDIT_CASE_readerdebug)
     readerdebugAuditCases();
+#endif
+#if defined(AUDIT_CASE_readerfilename)
+    readerfilenameAuditCases();
 #endif
 #if defined(AUDIT_CASE_graphicsapi)
     graphicsapiAuditCases();
