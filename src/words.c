@@ -339,7 +339,7 @@ void b12LoadWords()
     char* wordsDataPointer;
     char* newWord = (char*) NEW_WORD_ADDRESS;
     char** wordPointersPointer;
-    byte wordLength, lfn;
+    byte wordLength, lfn, previousWordLength = 0;
     word* synonymsListPointer;
     
     printf(B12_LOADING_WORDS);
@@ -393,7 +393,8 @@ void b12LoadWords()
 #endif
 
     for (wordNum = 0; wordNum < parsedWordCount; wordNum++) {
-        if (cbm_read(SEQUENTIAL_LFN, &wordPos, 1) != 1 || wordPos >= MAX_WORD_SIZE) goto invalidWords;
+        if (cbm_read(SEQUENTIAL_LFN, &wordPos, 1) != 1 || wordPos >= MAX_WORD_SIZE ||
+            wordPos > previousWordLength) goto invalidWords;
         do {
             if (cbm_read(SEQUENTIAL_LFN, &data[0], 1) != 1 || wordPos >= MAX_WORD_SIZE - 1) goto invalidWords;
             newWord[wordPos++] = ((data[0] ^ 0x7F) & 0x7F);
@@ -404,6 +405,7 @@ void b12LoadWords()
 
         } while (data[0] < 0x80);
         newWord[wordPos] = 0;
+        previousWordLength = wordPos;
 
 #ifdef VERBOSE_WORDS
         printf("word: %s\n", newWord);

@@ -167,7 +167,18 @@ static void dictionaryMetadataCapacity(const byte* allocationBaseline, char* que
     checkAllocationBaseline(allocationBaseline, "rejected oversized WORDS.TOK data leaked allocations");
     auditCheck(remove("words.tok") == 0, "oversized WORDS.TOK fixture cleanup");
 
-
+    auditOutput("WORDS.TOK INVALID PREFIX; ");
+    writeIndexedWordsFile(2, 3, 'c', 4, query);
+    b12LoadWords();
+    auditCheck(dictionaryWordCount() == 0 && dictionarySynonymCount() == 0,
+        "WORDS.TOK prefix longer than the previous word was published");
+    makeIndexedWord(query, 3, 0, 'c');
+    auditCheck(b12FindSynonymNum(query, RAM_BANK) == -1,
+        "WORDS.TOK invalid-prefix word remained searchable");
+    b12DiscardWords();
+    b12DiscardWords();
+    checkAllocationBaseline(allocationBaseline, "rejected invalid-prefix WORDS.TOK leaked allocations");
+    auditCheck(remove("words.tok") == 0, "invalid-prefix WORDS.TOK fixture cleanup");
 }
 
 static char* seedWordsDataEndCanary(byte* bank)
