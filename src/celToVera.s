@@ -587,6 +587,44 @@ GET_STRUCT_8_STORED_OFFSET _offsetOfBmpBank, CEL_ADDR, BMP_BANK
 bra celToVeraLowRam_start
 
 celToVeraLowRam_split:
+; Each segment owns at most64 rows. The original cel height belongs to the
+; complete image and must never drive a segment past its VRAM allocation.
+GET_STRUCT_8_STORED_OFFSET _offsetOfCelWidth, CEL_ADDR, CEL_TO_VERA_GENERAL_TMP
+lda CEL_TO_VERA_GENERAL_TMP
+clc
+adc #31
+ror
+lsr
+lsr
+lsr
+lsr
+sta CEL_TO_VERA_GENERAL_TMP
+lda SPLIT_COUNTER
+dec
+ldx #0
+@segmentRow:
+cmp CEL_TO_VERA_GENERAL_TMP
+bcc @rowKnown
+sec
+sbc CEL_TO_VERA_GENERAL_TMP
+inx
+bra @segmentRow
+@rowKnown:
+lda CEL_HEIGHT
+@subtractRow:
+cpx #0
+beq @capRowCount
+sec
+sbc #64
+dex
+bra @subtractRow
+@capRowCount:
+cmp #65
+bcc @rowCountReady
+lda #64
+@rowCountReady:
+sta CEL_HEIGHT
+
 lda SPLIT_COUNTER ;The counter would have being set by the calling method
 dec
 asl

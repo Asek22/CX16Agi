@@ -167,6 +167,101 @@ _displayTextAddressToCopyTo: .word $0
 _displayTextAddressToCopyToHigh: .word $0
 _currentTextBuffer: .word $0
 .segment "BANKRAM06"
+.importzp c_sp, regbank
+IRQ_CPU_ZP_SIZE = 26
+IRQ_GAME_ZP_START = ZP_PTR_CODE
+IRQ_GAME_ZP_SIZE = $100 - IRQ_GAME_ZP_START
+.assert regbank + 6 - c_sp = IRQ_CPU_ZP_SIZE, lderror, "IRQ cc65 register layout changed"
+irqCpuContext: .res IRQ_CPU_ZP_SIZE
+irqGameContext: .res IRQ_GAME_ZP_SIZE
+irqVeraContext: .res 6
+irqVeraControl: .byte 0
+irqFxControl: .byte 0
+
+; IRQ owns its sound note pointers and IRQ_TMP registers. Preserve only the
+; interrupted program's cc65 registers and shared interpreter/render scratch.
+b6SaveIrqContext:
+ldx #0
+@cpu:
+lda c_sp,x
+sta irqCpuContext,x
+inx
+cpx #IRQ_CPU_ZP_SIZE
+bne @cpu
+ldx #0
+@game:
+lda IRQ_GAME_ZP_START,x
+sta irqGameContext,x
+inx
+cpx #IRQ_GAME_ZP_SIZE
+bne @game
+lda VERA_ctrl
+sta irqVeraControl
+lda #4 ; DCSEL2: suspend cache writes while IRQ draws through the data ports.
+sta VERA_ctrl
+lda VERA_fx_ctrl
+sta irqFxControl
+stz VERA_fx_ctrl
+stz VERA_ctrl
+ldx #0
+@port0:
+lda VERA_addr_low,x
+sta irqVeraContext,x
+inx
+cpx #3
+bne @port0
+lda #1
+sta VERA_ctrl
+ldx #0
+@port1:
+lda VERA_addr_low,x
+sta irqVeraContext+3,x
+inx
+cpx #3
+bne @port1
+stz VERA_ctrl
+rts
+
+b6RestoreIrqContext:
+ldx #0
+@cpu:
+lda irqCpuContext,x
+sta c_sp,x
+inx
+cpx #IRQ_CPU_ZP_SIZE
+bne @cpu
+ldx #0
+@game:
+lda irqGameContext,x
+sta IRQ_GAME_ZP_START,x
+inx
+cpx #IRQ_GAME_ZP_SIZE
+bne @game
+stz VERA_ctrl
+ldx #0
+@port0:
+lda irqVeraContext,x
+sta VERA_addr_low,x
+inx
+cpx #3
+bne @port0
+lda #1
+sta VERA_ctrl
+ldx #0
+@port1:
+lda irqVeraContext+3,x
+sta VERA_addr_low,x
+inx
+cpx #3
+bne @port1
+lda #4
+sta VERA_ctrl
+lda irqFxControl
+sta VERA_fx_ctrl
+lda irqVeraControl
+sta VERA_ctrl
+rts
+
 _b6InitIrq:
  ; backup default RAM IRQ vector
    lda IRQVec
@@ -235,7 +330,7 @@ debugVSyncCounter: .word $0
 
 custom_irq_handler: ;For some reason the jmpTableBank seems disused and we are trampoling: TODO FIX as this wastes cycles 
 lda RAM_BANK
-sta @previousRamBank 
+pha
 
 ; continue to default IRQ handler
 lda VERA_isr
@@ -244,6 +339,9 @@ bne @callSoundHandler
 jmp @defaultIqr
 
 @callSoundHandler:
+lda #IRQ_BANK
+sta RAM_BANK
+jsr b6SaveIrqContext
 lda #SOUND_BANK
 sta RAM_BANK
 jsr bBSoundHandler
@@ -354,9 +452,12 @@ inc _vSyncCounter + 1
 @resetLatches:
 lda #(VSYNC_BIT)
 sta VERA_isr ; reset latches
+lda #IRQ_BANK
+sta RAM_BANK
+jsr b6RestoreIrqContext
 
 @defaultIqr:
-lda @previousRamBank
+pla
 sta RAM_BANK
 jmp (default_irq_vector)
 ; RTI will happen after jump
@@ -374,7 +475,5 @@ jmp (default_irq_vector)
 
 
 @jmpTableBank: .byte $0, $0, $0, $0, TEXT_BANK, $0 ;In order of IRQ_CMDS
-@previousRamBank: .byte $0
 
 .endif ; IRQ_INC
-
