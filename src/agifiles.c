@@ -41,6 +41,10 @@ enum { B6_MAX_SETNAM_LENGTH = 255 };
 static char fileNameAndFlags[B6_MAX_SETNAM_LENGTH + 1];
 #pragma bss-name (pop)
 
+#pragma wrapped-call (push, trampoline, VIEW_CODE_BANK_2)
+byte* readFileContentsIntoBankedRam(int size, byte* bank, boolean fallible);
+#pragma wrapped-call (pop)
+
 byte avisDurgan[11] = { 0x41, 0x76, 0x69, 0x73, 0x20, 0x44, 0x75, 0x72, 0x67, 0x61, 0x6E };//https://www.liquisearch.com/what_is_avis_durgan
 
 
@@ -347,7 +351,8 @@ void b6InitFiles()
 	b6LoadAGIDirs();
 }
 
-byte* b6ReadFileContentsIntoBankedRam(int size, byte* bank)
+#pragma code-name (push, "BANKRAM0A")
+byte* readFileContentsIntoBankedRam(int size, byte* bank, boolean fallible)
 {
 	byte* result;
 	int i;
@@ -355,7 +360,8 @@ byte* b6ReadFileContentsIntoBankedRam(int size, byte* bank)
 	int debug;
 	*bank = 0;
 	if (size <= 0 || size > MEMORY_MANAGER_BANK_SIZE) return NULL;
-	result = b10BankedAlloc(size, bank);
+	result = fallible ? b10TryBankedAlloc(size, bank) : b10BankedAlloc(size, bank);
+	if (!result) return NULL;
 	memsetBanked(result, 0, size, *bank);
 #ifdef VERBOSE
 	printf("Attempting to code data of size %d to %p\n", size, result);
@@ -397,6 +403,16 @@ byte* b6ReadFileContentsIntoBankedRam(int size, byte* bank)
 	printf("Data is in bank %d at address %p and the first byte is %p and the size is %d \n", *bank, &result[0], debug, size);
 #endif // VERBOSE
 
+	return result;
+}
+#pragma code-name (pop)
+
+byte* b6ReadFileContentsIntoBankedRam(int size, byte* bank)
+{
+	byte* result;
+#pragma wrapped-call (push, trampoline, VIEW_CODE_BANK_2)
+	result = readFileContentsIntoBankedRam(size, bank, FALSE);
+#pragma wrapped-call (pop)
 	return result;
 }
 
@@ -479,7 +495,7 @@ boolean b6SeekAndCheckSignature(char* fileName, AGIFilePosType* location)
 	return result;
 }
 
-byte b6SeekAndReadLogicIntoMemory(AGIFile* AGIData, int resType)
+static byte seekAndReadResourceIntoMemory(AGIFile* AGIData, int resType, boolean fallible)
 {
 	byte currentByte, bank;
 	unsigned char byte1, byte2, volNum;
@@ -511,11 +527,15 @@ byte b6SeekAndReadLogicIntoMemory(AGIFile* AGIData, int resType)
 		AGIData->codeSize = byte1 + byte2 * 256;
 		if (AGIData->totalSize < 5 || AGIData->codeSize > AGIData->totalSize - 5) return 0;
 
-		AGIData->code = b6ReadFileContentsIntoBankedRam(AGIData->codeSize, &bank);
+#pragma wrapped-call (push, trampoline, VIEW_CODE_BANK_2)
+		AGIData->code = readFileContentsIntoBankedRam(AGIData->codeSize, &bank, fallible);
+#pragma wrapped-call (pop)
 	}
 	else
 	{
-		AGIData->code = b6ReadFileContentsIntoBankedRam(AGIData->totalSize, &bank);
+		#pragma wrapped-call (push, trampoline, VIEW_CODE_BANK_2)
+		AGIData->code = readFileContentsIntoBankedRam(AGIData->totalSize, &bank, fallible);
+		#pragma wrapped-call (pop)
 	}
 	return bank;
 
@@ -546,7 +566,7 @@ void b6XOrAvisDurgan(byte* toXOR, unsigned int* avisPos)
 ** In both cases the format that is easier to deal with is returned.
 **************************************************************************/
 
-void b6LoadAGIFile(int resType, AGIFilePosType* location, AGIFile* AGIData)
+static boolean loadAGIFile(int resType, AGIFilePosType* location, AGIFile* AGIData, boolean fallible)
 {
 #define SEPARATOR 0
 
@@ -557,6 +577,7 @@ void b6LoadAGIFile(int resType, AGIFilePosType* location, AGIFile* AGIData)
 	byte** offsetPointer;
 	boolean lastCharacterSeparator = TRUE;
 	char fileName[FILE_NAME_SIZE];
+	memset(AGIData, 0, sizeof(*AGIData));
 
 #ifdef VERBOSE
 		printf("Attempting to load resource %d from location %d file %d\n", resType, location->filePos, location->fileNum);
@@ -566,7 +587,8 @@ void b6LoadAGIFile(int resType, AGIFilePosType* location, AGIFile* AGIData)
 #ifdef VERBOSE
 			printf("Could not find requested AGI file, as the filePos is empty.\n");
 #endif // VERBOSE
-		exit(0);
+		if (!fallible) exit(0);
+		return FALSE;
 	}
 
 	sprintf(&fileName[0], B6_VOL, location->fileNum);
@@ -592,14 +614,16 @@ void b6LoadAGIFile(int resType, AGIFilePosType* location, AGIFile* AGIData)
 	if (!b6SeekAndCheckSignature(&fileName[0], location))
 	{
 		cbm_close(lfn);
-		exit(EXIT_FAILURE);
+		if (!fallible) exit(EXIT_FAILURE);
+		return FALSE;
 	}
 
-	AGIData->codeBank = b6SeekAndReadLogicIntoMemory(AGIData, resType);
+	AGIData->codeBank = seekAndReadResourceIntoMemory(AGIData, resType, fallible);
 	if (!AGIData->code)
 	{
 		cbm_close(lfn);
-		exit(EXIT_FAILURE);
+		if (!fallible) exit(EXIT_FAILURE);
+		return FALSE;
 	}
 
 #ifdef VERBOSE
@@ -619,10 +643,13 @@ void b6LoadAGIFile(int resType, AGIFilePosType* location, AGIFile* AGIData)
 			AGIData->messageData = NULL;
 			AGIData->messageBank = 0;
 			cbm_close(lfn);
-			return;
+			return TRUE;
 		}
 
-		wholeMessageSectionData = b6ReadFileContentsIntoBankedRam(AGIData->totalSize - AGIData->codeSize - 5, &AGIData->messageBank);
+		#pragma wrapped-call (push, trampoline, VIEW_CODE_BANK_2)
+		wholeMessageSectionData = readFileContentsIntoBankedRam(
+			AGIData->totalSize - AGIData->codeSize - 5, &AGIData->messageBank, fallible);
+		#pragma wrapped-call (pop)
 		if (!wholeMessageSectionData) goto invalidMessageSection;
 		AGIData->messagePointers = (byte**)&wholeMessageSectionData[0];
 
@@ -752,14 +779,25 @@ void b6LoadAGIFile(int resType, AGIFilePosType* location, AGIFile* AGIData)
 #ifdef VERBOSE
 	//printf("File closed");
 #endif // VERBOSE
-	return;
+	return TRUE;
 
 invalidMessageSection:
-	b10BankedDealloc(AGIData->code, AGIData->codeBank);
-	AGIData->code = NULL;
-	AGIData->codeBank = 0;
+	if (AGIData->messagePointers) b10BankedDealloc((byte*)AGIData->messagePointers, AGIData->messageBank);
+	if (AGIData->code) b10BankedDealloc(AGIData->code, AGIData->codeBank);
+	memset(AGIData, 0, sizeof(*AGIData));
 	cbm_close(lfn);
-	exit(EXIT_FAILURE);
+	if (!fallible) exit(EXIT_FAILURE);
+	return FALSE;
 
+}
+
+void b6LoadAGIFile(int resType, AGIFilePosType* location, AGIFile* AGIData)
+{
+	(void)loadAGIFile(resType, location, AGIData, FALSE);
+}
+
+boolean b6TryLoadAGIFile(int resType, AGIFilePosType* location, AGIFile* AGIData)
+{
+	return loadAGIFile(resType, location, AGIData, TRUE);
 }
 #pragma code-name (pop)

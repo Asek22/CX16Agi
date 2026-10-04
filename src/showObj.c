@@ -62,7 +62,7 @@ void b11ShowObj(byte objNum)
    unsigned shifted, selectedPixelWidth;
    getLoadedView(&localView, objNum);
    wasLoaded = localView.loaded;
-   b9LoadViewFile(objNum);
+   if (!wasLoaded && !b9TryLoadViewFile(objNum)) return;
 
    getLoadedView(&localView, objNum);
    getLoadedLoop(&localView, &localLoop, 0);

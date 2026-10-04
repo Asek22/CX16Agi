@@ -2,6 +2,7 @@
 #include "../../showObj.h"
 #include "../../inventory.h"
 #include <cbm.h>
+#include <stdio.h>
 #include <string.h>
 
 extern byte allocationArray[], bDSpriteAllocTable[];
@@ -23,6 +24,16 @@ void showObjTallCelCase(View* view, Loop* loop, Cel* cel, byte height);
 void showObjCheckTextOverlay(void);
 void showObjSeedTextOverlay(void);
 void showObjAuditCasesInBank(VeraSpriteAddress selectedAddress, VeraSpriteAddress neighbor);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, CONTROLLER_BANK)
+void showObjFreshViewCases(void);
+void showObjPrepareViewExhaustion(byte freeTiny);
+void showObjReleaseViewExhaustion(void);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, 2)
+byte showObjDisplayVideo(void);
+void showObjFreshViewFailureStage(byte freeTiny);
+void showObjFreshViewSuccessCase(void);
 #pragma wrapped-call (pop)
 void showObjCheckSpriteOwnership(void);
 void showObjCheckSelectedVramOwnership(void);
@@ -74,18 +85,6 @@ static void showObjPrepareVramSlots(VeraSpriteAddress* selectedAddress, VeraSpri
 }
 #pragma code-name (push, "BANKRAM01")
 static byte pattern(unsigned address) { return (byte)(address ^ (address >> 8)); }
-static byte showObjDisplayVideo(void)
-{
-    byte control, video;
-    asm("php");
-    asm("sei");
-    control = VERA.control;
-    VERA.control = control & 1; /* DCSEL 0 exposes DC_VIDEO at $9F29. */
-    video = VERA.display.video;
-    VERA.control = control;
-    asm("plp");
-    return video;
-}
 void showObjCheckTextOverlay(void)
 {
     unsigned offset;
@@ -156,6 +155,229 @@ static void showObjWideCelCase(View* view, Loop* loop, Cel* cel, VeraSpriteAddre
         "oversized doubled legacy cel discarded its caller-owned view");
     auditCheck(testPeek(neighbor) == 0xA5, "oversized doubled legacy cel changed neighboring VRAM");
 }
+
+#pragma code-name (pop)
+#pragma code-name (push, "BANKRAM02")
+#pragma rodata-name (push, "BANKRAM02")
+byte showObjDisplayVideo(void)
+{
+    byte control, video;
+    asm("php");
+    asm("sei");
+    control = VERA.control;
+    VERA.control = control & 1; /* DCSEL 0 exposes DC_VIDEO at $9F29. */
+    video = VERA.display.video;
+    VERA.control = control;
+    asm("plp");
+    return video;
+}
+
+#pragma code-name (pop)
+#pragma rodata-name (pop)
+#pragma code-name (push, "BANKRAM01")
+#pragma rodata-name (push, "BANKRAM01")
+static void showObjWriteFreshView(byte valid)
+{
+    static const byte resource[] = {
+        0x12, 0x34, 0, 27, 0,
+        0, 0, 2, 0, 0, 9, 0, 18, 0,
+        1, 3, 0, 16, 1, 0, 0x78, 0x08, 0,
+        1, 3, 0, 16, 1, 0, 0x78, 0x08, 0
+    };
+    static const byte invalid[] = {0, 0, 0, 0, 0};
+    const byte* bytes = valid ? resource : invalid;
+    unsigned length = valid ? sizeof(resource) : sizeof(invalid);
+    FILE* output = fopen("vol.8", "wb");
+    auditCheck(output != 0, "VIEW fixture");
+    auditCheck(fwrite(bytes, 1, length, output) == length, "VIEW fixture");
+    fclose(output);
+}
+
+void showObjPrepareViewExhaustion(byte freeTiny)
+{
+    static const unsigned sizes[] = {LARGE_SIZE, MEDIUM_SIZE, SMALL_SIZE, EXTRA_SMALL_SIZE};
+    byte i, bank;
+    byte* block;
+    for (i = 0; i < sizeof(sizes) / sizeof(sizes[0]); ++i) {
+        while (TRUE) {
+            block = b10TryBankedAlloc(sizes[i], &bank);
+            if (!block) break;
+        }
+    }
+    for (i = 0; i < TINY_NO_SEGMENTS - freeTiny; ++i) {
+        block = b10TryBankedAlloc(TINY_SIZE, &bank);
+        auditCheck(block != 0, "VIEW capacity");
+    }
+    if (!freeTiny)
+        auditCheck(!b10TryBankedAlloc(TINY_SIZE, &bank), "VIEW exhaustion");
+    memCpyBanked(after, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(after));
+}
+
+void showObjReleaseViewExhaustion(void)
+{
+    static const unsigned segmentSizes[] = {TINY_SIZE, EXTRA_SMALL_SIZE, SMALL_SIZE, MEDIUM_SIZE, LARGE_SIZE};
+    static const byte segmentCounts[] = {TINY_NO_SEGMENTS, EXTRA_SMALL_NO_SEGMENTS, SMALL_NO_SEGMENTS, MEDIUM_NO_SEGMENTS, LARGE_NO_SEGMENTS};
+    static const byte firstBanks[] = {TINY_FIRST_BANK, EXTRA_SMALL_FIRST_BANK, SMALL_FIRST_BANK, MEDIUM_FIRST_BANK, LARGE_FIRST_BANK};
+    unsigned area, segment, index = 0;
+    unsigned long offset;
+    byte allocated;
+    for (area = 0; area < NO_SIZES; ++area) {
+        for (segment = 0; segment < segmentCounts[area]; ++segment, ++index) {
+            if (!before[index]) {
+                allocated = after[index];
+                if (allocated) {
+                    offset = (unsigned long)segment * segmentSizes[area];
+                    auditCheck(b10BankedDealloc((byte*)(BANK_MIN + offset % MEMORY_MANAGER_BANK_SIZE),
+                        firstBanks[area] + offset / MEMORY_MANAGER_BANK_SIZE), "VIEW fixture release");
+                }
+            }
+        }
+    }
+}
+
+#pragma code-name (pop)
+#pragma rodata-name (pop)
+#pragma code-name (push, "BANKRAM02")
+#pragma rodata-name (push, "BANKRAM02")
+void showObjFreshViewFailureStage(byte freeTiny)
+{
+    byte i;
+    byte previousActive = inventoryActive, previousVideo, currentVideo;
+    byte previousIrq = testStatus() & 4, previousBank = RAM_BANK;
+    byte previousControl = VERA.control;
+    byte previousAttributes[8], currentAttributes[8];
+    View view;
+
+    memCpyBanked(before, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(before));
+    showObjCheckSpriteOwnership();
+    previousVideo = showObjDisplayVideo();
+    for (i = 0; i < sizeof(previousAttributes); ++i) previousAttributes[i] = testPeek(0x1fff8UL + i);
+    inventoryActive = TRUE;
+    testPutKey('q');
+    showObjPrepareViewExhaustion(freeTiny);
+    b11ShowObj(200);
+    getLoadedView(&view, 200);
+    currentVideo = showObjDisplayVideo();
+    for (i = 0; i < sizeof(currentAttributes); ++i) currentAttributes[i] = testPeek(0x1fff8UL + i);
+    auditCheck(!view.loaded, "fresh VIEW failure");
+    auditCheck(inventoryActive && (currentVideo & 0x7f) == (previousVideo & 0x7f) &&
+        VERA.control == previousControl && !memcmp(previousAttributes, currentAttributes, sizeof(previousAttributes)),
+        "fresh VIEW failure");
+    auditCheck((testStatus() & 4) == previousIrq, "fresh VIEW failure");
+    auditCheck(RAM_BANK == previousBank, "fresh VIEW failure");
+    auditCheck(cbm_k_getin() == 'q', "fresh VIEW failure");
+    memCpyBanked(GOLDEN_RAM_WORK_AREA, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(after));
+    auditCheck(!memcmp(after, GOLDEN_RAM_WORK_AREA, sizeof(after)), "fresh VIEW failure");
+    showObjReleaseViewExhaustion();
+    memCpyBanked(after, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(after));
+    auditCheck(!memcmp(before, after, sizeof(before)), "fresh VIEW failure");
+    showObjCheckSpriteOwnership();
+    inventoryActive = previousActive;
+}
+
+#pragma code-name (pop)
+#pragma rodata-name (pop)
+#pragma code-name (push, "BANKRAM01")
+#pragma rodata-name (push, "BANKRAM01")
+static void showObjFreshViewRejectedCase(byte missing)
+{
+    byte previousActive = inventoryActive, previousIrq = testStatus() & 4;
+    byte previousBank = RAM_BANK, previousVideo = showObjDisplayVideo(), currentVideo;
+    byte previousAttributes[8], currentAttributes[8], i;
+    AGIFilePosType position;
+    View view;
+    memCpyBanked(before, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(before));
+    showObjCheckSpriteOwnership();
+    for (i = 0; i < sizeof(previousAttributes); ++i) previousAttributes[i] = testPeek(0x1fff8UL + i);
+    if (missing) {
+        memset(&position, 0, sizeof(position));
+        position.fileNum = 8;
+        position.filePos = EMPTY;
+        memCpyBanked((byte*)&viewdir[200], (byte*)&position, DIRECTORY_BANK, sizeof(position));
+    } else {
+        showObjWriteFreshView(FALSE);
+        memset(&position, 0, sizeof(position));
+        position.fileNum = 8;
+        memCpyBanked((byte*)&viewdir[200], (byte*)&position, DIRECTORY_BANK, sizeof(position));
+    }
+    inventoryActive = TRUE;
+    testPutKey('q');
+    b11ShowObj(200);
+    getLoadedView(&view, 200);
+    currentVideo = showObjDisplayVideo();
+    for (i = 0; i < sizeof(currentAttributes); ++i) currentAttributes[i] = testPeek(0x1fff8UL + i);
+    auditCheck(!view.loaded, "bad VIEW failure");
+    auditCheck(inventoryActive && (currentVideo & 0x7f) == (previousVideo & 0x7f) &&
+        !memcmp(previousAttributes, currentAttributes, sizeof(previousAttributes)),
+        "bad VIEW failure");
+    auditCheck((testStatus() & 4) == previousIrq && RAM_BANK == previousBank,
+        "bad VIEW failure");
+    auditCheck(cbm_k_getin() == 'q', "bad VIEW failure");
+    memCpyBanked(after, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(after));
+    auditCheck(!memcmp(before, after, sizeof(before)), "bad VIEW failure");
+    showObjCheckSpriteOwnership();
+    inventoryActive = previousActive;
+}
+
+#pragma code-name (pop)
+#pragma rodata-name (pop)
+#pragma code-name (push, "BANKRAM02")
+#pragma rodata-name (push, "BANKRAM02")
+void showObjFreshViewSuccessCase(void)
+{
+    byte previousActive = inventoryActive, previousIrq = testStatus() & 4;
+    byte previousBank = RAM_BANK, previousVideo = showObjDisplayVideo(), currentVideo;
+    byte previousAttributes[8], currentAttributes[8], i;
+    View view;
+    memCpyBanked(before, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(before));
+    showObjCheckSpriteOwnership();
+    for (i = 0; i < sizeof(previousAttributes); ++i) previousAttributes[i] = testPeek(0x1fff8UL + i);
+    inventoryActive = TRUE;
+    testVisibleFrames = 0;
+    testPutKey('x');
+    b11ShowObj(200);
+    currentVideo = showObjDisplayVideo();
+    for (i = 0; i < sizeof(currentAttributes); ++i) currentAttributes[i] = testPeek(0x1fff8UL + i);
+    getLoadedView(&view, 200);
+    auditCheck(!view.loaded, "fresh VIEW result");
+    auditCheck(testPeek(VRAM_START) == 0x77 && testVisibleFrames && !cbm_k_getin(),
+        "fresh VIEW result");
+    auditCheck(inventoryActive && (currentVideo & 0x7f) == (previousVideo & 0x7f) &&
+        !memcmp(previousAttributes, currentAttributes, sizeof(previousAttributes)),
+        "fresh VIEW result");
+    auditCheck((testStatus() & 4) == previousIrq && RAM_BANK == previousBank,
+        "fresh VIEW result");
+    memCpyBanked(after, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(after));
+    auditCheck(!memcmp(before, after, sizeof(before)), "fresh VIEW result");
+    showObjCheckSpriteOwnership();
+    inventoryActive = previousActive;
+}
+
+#pragma code-name (pop)
+#pragma rodata-name (pop)
+#pragma code-name (push, "BANKRAM01")
+#pragma rodata-name (push, "BANKRAM01")
+void showObjFreshViewCases(void)
+{
+    byte i;
+    AGIFilePosType previousPosition, position;
+    memCpyBanked((byte*)&previousPosition, (byte*)&viewdir[200], DIRECTORY_BANK, sizeof(previousPosition));
+    showObjWriteFreshView(TRUE);
+    memset(&position, 0, sizeof(position));
+    position.fileNum = 8;
+    memCpyBanked((byte*)&viewdir[200], (byte*)&position, DIRECTORY_BANK, sizeof(position));
+    for (i = 0; i < 4; ++i) showObjFreshViewFailureStage(i);
+    showObjFreshViewFailureStage(3);
+    showObjFreshViewRejectedCase(TRUE);
+    showObjFreshViewRejectedCase(FALSE);
+    showObjWriteFreshView(TRUE);
+    showObjFreshViewSuccessCase();
+    memCpyBanked((byte*)&viewdir[200], (byte*)&previousPosition, DIRECTORY_BANK, sizeof(previousPosition));
+    auditCheck(remove("vol.8") == 0, "VIEW fixture");
+}
+#pragma code-name (pop)
+#pragma rodata-name (pop)
+#pragma code-name (push, "BANKRAM01")
 void showObjTallCelCase(View* view, Loop* loop, Cel* cel, byte height)
 {
     byte row, rle[3] = {0x78, 0x08, 0};
@@ -319,5 +541,6 @@ void showObjAuditCasesInBank(VeraSpriteAddress selectedAddress, VeraSpriteAddres
     showObjCheckSpriteOwnership();
     showObjExhaustionCases();
     b9DiscardView(200);
+    showObjFreshViewCases();
 }
 #pragma code-name (pop)

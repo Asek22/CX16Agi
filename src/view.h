@@ -52,6 +52,7 @@ void getLoadedCel(Loop* loadedLoop, Cel* localCell, byte localCellNumber);
 
 #pragma wrapped-call (push, trampoline, VIEW_CODE_BANK_1)
 void b9LoadViewFile(byte viewNum);
+boolean b9TryLoadViewFile(byte viewNum);
 void b9DiscardView(byte viewNum);
 void b9SetView(byte viewNum, byte entryNum);
 extern void b9SetCel(ViewTable* localViewTab, byte entryNum, byte celNum);
