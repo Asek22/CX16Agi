@@ -14,7 +14,6 @@ SPLITVIEW_INC = 1
 .import _b5Divide
 
 .segment "BANKRAM0E"
-bESplitAddressesBuffer: .res 64
 
 SPLIT_CEL_WIDTH = ZP_TMP_2
 SPLIT_CEL_HEIGHT = ZP_TMP_2 + 1

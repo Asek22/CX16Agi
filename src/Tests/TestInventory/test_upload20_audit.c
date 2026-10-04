@@ -8,10 +8,10 @@ static unsigned long cycles(void)
     byte c=*(volatile byte*)0x9fba, d=*(volatile byte*)0x9fbb;
     return ((unsigned long)d<<24)|((unsigned long)c<<16)|((unsigned)b<<8)|a;
 }
-static void printCycles(unsigned long elapsed)
+static void printCycles(const char* label, unsigned long elapsed)
 {
     byte i, digit;
-    auditOutput("SPLIT UPLOAD CYCLES HEX: ");
+    auditOutput(label);
     for(i=0; i<8; ++i) {
         digit=(byte)(elapsed>>28);
         *(volatile byte*)0x9fbb=(digit<10?'0'+digit:'A'+digit-10)&0x7f;
@@ -71,10 +71,22 @@ void upload20AuditCases(void)
             auditCheck(testPeek(addresses[0]+i)==0x11,"IRQ interrupted split upload and changed an interior cel pixel");
     }
     elapsed/=8;
-    printCycles(elapsed);
+    printCycles("SPLIT UPLOAD CYCLES HEX: ",elapsed);
     /* Before bounding segment rows:106,823 cycles, with a live-span overwrite.
      * Retain the same IRQ-enabled16x65 workload and prevent a2x regression. */
     auditCheck(elapsed<213646UL,"split upload exceeded the retained performance baseline budget");
+    testDisableInterrupts();
+    start=cycles();
+    for(pass=0; pass<64; ++pass)
+        bECellToVeraBulk(SPR_ATTR_32,SPR_ATTR_64,1,2,0,0,15);
+    elapsed=cycles()-start;
+    elapsed/=64;
+    printCycles("IRQ-MASKED SPLIT UPLOAD CPU CYCLES HEX: ",elapsed);
+    /* Pre-fix 64-call batch: 90,827 cycles/upload (0x162CB) in two runs.
+     * Retain an 89,500-cycle ceiling to guard the measured copy overhead. */
+    auditCheck(elapsed<89500UL,"split upload exceeded its IRQ-masked CPU budget");
+    auditCheck((testStatus()&4)!=0,"split upload CPU measurement did not mask interrupts");
+    if (!(irqStatus&4)) testEnableInterrupts();
     auditCheck(RAM_BANK==callerBank,"split upload changed the caller's RAM bank");
     auditCheck((testStatus()&4)==irqStatus,"split upload changed the caller's IRQ mask");
     for(row=0; row<8; ++row)

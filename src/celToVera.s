@@ -392,30 +392,6 @@ GET_STRUCT_8_STORED_OFFSET _offsetOfCelWidth, CEL_ADDR, CEL_WIDTH
 lda CEL_WIDTH
 sta BULK_CEL_WIDTH
 
-lda SPLIT_CEL_SEGMENTS
-ora SPLIT_CEL_SEGMENTS + 1
-
-beq @splitLoop ;If the cel is not split we don't need this copy
-
-lda #< bESplitAddressesBuffer
-ldx #> bESplitAddressesBuffer
-jsr pushax
-
-lda #SPRITE_UPDATES_BANK
-jsr pusha
-
-lda SPLIT_CEL_SEGMENTS
-ldx SPLIT_CEL_SEGMENTS + 1
-jsr pushax
-
-lda SPLIT_CEL_BANK
-jsr pusha
-
-lda #POINTER_TO_SPLIT_DATA_SIZE
-ldx #$0
-
-jsr _memCpyBankedBetween
-
 @splitLoop: ;Will always iterate once if the cell is not split
 GET_STRUCT_8_STORED_OFFSET _offsetOfSplitSegments, CEL_ADDR, NO_SPLIT_SEGMENTS
 
