@@ -329,13 +329,11 @@ byte b3WrapText(char* line_start, int width, byte* maxWidth) {
 void b3DrawBorder(byte boxWidth, size_t messageSize)
 {
 	byte i;
-	char* currentCharToWrite = &b3TextBuffer2[0], * charToReadNext;
+	char* currentCharToWrite = &b3TextBuffer2[0], * lineStart, * lineEnd;
 	int segmentLength;
 	char* leftBarPosition;
-	char delimiter[2];
+	byte moreLines = TRUE;
 
-	delimiter[0] = NEW_LINE;
-	delimiter[1] = '\0';
 	if (boxWidth < 2) boxWidth = 2;
 	if (boxWidth >= MAX_CHAR_ACROSS) boxWidth = MAX_CHAR_ACROSS - 1;
 	b3LastBoxLines = 4;
@@ -358,22 +356,24 @@ void b3DrawBorder(byte boxWidth, size_t messageSize)
 
 	*currentCharToWrite++ = NEW_LINE;
 
-	charToReadNext = strtok(b3TextBuffer1, delimiter);
+	lineStart = b3TextBuffer1;
 
 	/* Reserve the two closing rows and terminator before adding a line. */
-	while (charToReadNext && b3LastBoxLines < TEXT_ROWS &&
+	while (moreLines && b3LastBoxLines < TEXT_ROWS &&
 		currentCharToWrite + 3 * (boxWidth + 2) <= b3TextBuffer2 + TEXTBUFFER_SIZE)
 	{
+		lineEnd = lineStart;
+		while (*lineEnd && *lineEnd != NEW_LINE) lineEnd++;
+		segmentLength = lineEnd - lineStart;
+		if (segmentLength > boxWidth - 1) segmentLength = boxWidth - 1;
+
 		leftBarPosition = currentCharToWrite;
 		*currentCharToWrite++ = LEFT_BORDER;
-
-		segmentLength = strlen(charToReadNext);
-		if (segmentLength > boxWidth - 1) segmentLength = boxWidth - 1;
-		memcpy(currentCharToWrite, charToReadNext, segmentLength);
-
+		memcpy(currentCharToWrite, lineStart, segmentLength);
 		currentCharToWrite += segmentLength;
 
-		charToReadNext = strtok(NULL, delimiter);
+		if (*lineEnd == NEW_LINE) lineStart = lineEnd + 1;
+		else moreLines = FALSE;
 
 		while (currentCharToWrite < leftBarPosition + boxWidth)
 		{
@@ -430,7 +430,7 @@ void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, by
 	if (boxWidth)
 	{
 		if (boxWidth < 4) boxWidth = 4;
-		if (boxWidth >= MAX_CHAR_ACROSS) boxWidth = MAX_CHAR_ACROSS - 1;
+		if (boxWidth > MAX_CHAR_ACROSS) boxWidth = MAX_CHAR_ACROSS;
 	}
 	textWidth = boxWidth;
 	maxMessageSize = boxWidth ? TEXTBUFFER_SIZE : TEXTBUFFER_SIZE * 2; //If there is no box, we can overflow into buffer 2 for a bigger message.
@@ -467,6 +467,10 @@ void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, by
 			memCpyBankedBetween((byte*)b3TextBuffer1, TEXT_CODE_BANK, (byte*)message, messageBank, messageSize);
 		}
 		b3TextBuffer1[messageSize - 1] = '\0';
+		for (i = 0; i < messageSize - 1; ++i)
+		{
+			if (b3TextBuffer1[i] == NEW_LINE) numberOfLines++;
+		}
 
 		if (messageSize - 1 > TILE_LAYER_WIDTH / 2)
 		{
@@ -482,7 +486,7 @@ void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, by
 				if (boxWidth && maxWidth)
 				{
 					boxWidth = maxWidth >= MAX_CHAR_ACROSS - 2
-						? MAX_CHAR_ACROSS - 1
+						? MAX_CHAR_ACROSS
 						: maxWidth + 2;
 				}
 			}
@@ -494,7 +498,7 @@ void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, by
 
 		if (boxWidth)
 		{
-			b3DrawBorder(boxWidth - 2, messageSize);
+			b3DrawBorder(boxWidth - 1, messageSize);
 			currentTextBuffer = b3TextBuffer2;
 		}
 
