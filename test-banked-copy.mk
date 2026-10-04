@@ -10,7 +10,7 @@ BANK_TEST_OUT := $(TARGETOBJDIR)/tests/banked-copy
 test-banked-copy:
 	@mkdir -p $(BANK_TEST_OUT)
 	@set -eu; case_dir=$$(mktemp -d $(BANK_TEST_OUT)/case.XXXXXX); \
-	trap 'rm -rf "$$case_dir"' EXIT HUP INT TERM; \
+	trap 'if [ -d "$$case_dir" ]; then rm -r -- "$$case_dir"; fi' EXIT HUP INT TERM; \
 	$(BANK_TEST_CC) -t cx16 $(BANK_TEST_CFLAGS) -c -o "$$case_dir/helpers.o" src/helpers.c; \
 	$(BANK_TEST_CC) -t cx16 $(BANK_TEST_CFLAGS) -c -o "$$case_dir/memory.o" src/memoryManager.c; \
 	$(BANK_TEST_CC) -t cx16 $(BANK_TEST_CFLAGS) -c -o "$$case_dir/test.o" $(BANK_TEST_ROOT)/test_banked_copy.c; \

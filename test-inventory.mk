@@ -16,7 +16,7 @@ test-inventory:
 	@mkdir -p $(INVENTORY_TEST_OUT)
 	@set -eu; exec 9>"$(INVENTORY_TEST_OUT)/.suite.lock"; flock 9; \
 	case_dir=$$(mktemp -d $(INVENTORY_TEST_OUT)/case.XXXXXX); \
-	trap 'rm -rf "$$case_dir"' EXIT HUP INT TERM; \
+	trap 'if [ -d "$$case_dir" ]; then rm -r -- "$$case_dir"; fi' EXIT HUP INT TERM; \
 	mkdir "$$case_dir/objects"; \
 	for source in src/*.c; do \
 	  name=$$(basename "$$source" .c); \
