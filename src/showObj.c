@@ -48,18 +48,18 @@ static byte overlayVideo(byte value, byte restore)
    asm("plp");
    return previous;
 }
-
 #pragma code-name (push, "BANKRAM11")
 void b11ShowObj(byte objNum)
 {
    View localView;
    Loop localLoop;
    Cel localCel;
+   SpriteAttributeSize spriteAttributeWidth, spriteAttributeHeight;
    SpriteAllocationSize spriteAllocationWidth, spriteAllocationHeight;
    VeraSpriteAddress spriteAddress;
    byte savedAttributes[8], *savedText, textBank;
    byte previousActive, previousVideo, wasLoaded, buttons;
-   unsigned shifted;
+   unsigned shifted, selectedPixelWidth;
    getLoadedView(&localView, objNum);
    wasLoaded = localView.loaded;
    b9LoadViewFile(objNum);
@@ -68,12 +68,19 @@ void b11ShowObj(byte objNum)
    getLoadedLoop(&localView, &localLoop, 0);
    getLoadedCel(&localLoop, &localCel, 0);
 
-   spriteAllocationWidth = bEGetSpriteAllocateSize(localLoop.allocationWidth);
-   spriteAllocationHeight = bEGetSpriteAllocateSize(localLoop.allocationHeight);
-   if (localCel.width > spriteAllocationWidth / 2 || localCel.height > spriteAllocationHeight) {
+   selectedPixelWidth = (unsigned)localCel.width * 2;
+   if (selectedPixelWidth > SPR_SIZE_64 || localCel.height > SPR_SIZE_64) {
       if (!wasLoaded) b9DiscardView(objNum);
       return;
    }
+   spriteAttributeWidth = selectedPixelWidth > SPR_SIZE_32 ? SPR_ATTR_64 :
+      selectedPixelWidth > SPR_SIZE_16 ? SPR_ATTR_32 :
+      selectedPixelWidth > SPR_SIZE_8 ? SPR_ATTR_16 : SPR_ATTR_8;
+   spriteAttributeHeight = localCel.height > SPR_SIZE_32 ? SPR_ATTR_64 :
+      localCel.height > SPR_SIZE_16 ? SPR_ATTR_32 :
+      localCel.height > SPR_SIZE_8 ? SPR_ATTR_16 : SPR_ATTR_8;
+   spriteAllocationWidth = bEGetSpriteAllocateSize(spriteAttributeWidth);
+   spriteAllocationHeight = bEGetSpriteAllocateSize(spriteAttributeHeight);
    savedText = b10TryBankedAlloc(4096, &textBank);
    if (!savedText) {
       if (!wasLoaded) b9DiscardView(objNum);
@@ -90,7 +97,7 @@ void b11ShowObj(byte objNum)
     textOverlay(savedText, textBank, FALSE);
     asm("sei");
     SET_VERA_ADDRESS_ZP(spriteAddress, VERA_ADDRESS, VERA_ADDRESS_HIGH);
-	 bEClearVeraSprite(localLoop.allocationWidth, localLoop.allocationHeight);
+    bEClearVeraSprite(spriteAttributeWidth, spriteAttributeHeight);
     REENABLE_INTERRUPTS();
 
     b9CelToVera(&localCel, localLoop.celsBank, spriteAddress, MAX_PRIORITY, spriteAllocationWidth / 2, 0, 0, MAX_PRIORITY);
@@ -110,7 +117,7 @@ void b11ShowObj(byte objNum)
     inventoryBuffer[4] = PICTURE_HEIGHT/2+localCel.height/2;
     inventoryBuffer[5] = 0;
     inventoryBuffer[6] = 12;
-    inventoryBuffer[7] = localLoop.allocationHeight << 6 | localLoop.allocationWidth << 4 | localLoop.palette;
+    inventoryBuffer[7] = spriteAttributeHeight << 6 | spriteAttributeWidth << 4 | localLoop.palette;
     overlayTransfer(0x1fff8UL, 8, TRUE);
     previousVideo = overlayVideo(0, FALSE);
     buttons = inventoryMouseButtons();
