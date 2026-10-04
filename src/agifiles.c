@@ -172,7 +172,7 @@ int8_t b6Cx16_fseek(uint8_t channel, uint32_t offset) {
 void b6LoadAGIDir(int dirNum, const char* fName, int* count)
 {
 	FILE* fp;
-	unsigned char byte1, byte2, byte3;
+	int byte1, byte2, byte3;
 	unsigned char address[4] = { 0,0,0,0 };
 	AGIFilePosType tempPos;
 	int value;
@@ -182,10 +182,9 @@ void b6LoadAGIDir(int dirNum, const char* fName, int* count)
 		exit(0);
 	}
 
-	while (!feof(fp)) {
-		byte1 = fgetc(fp);
-		byte2 = fgetc(fp);
-		byte3 = fgetc(fp);
+	while ((byte1 = fgetc(fp)) != EOF &&
+		(byte2 = fgetc(fp)) != EOF &&
+		(byte3 = fgetc(fp)) != EOF) {
 
 		tempPos.fileNum = ((byte1 & 0xF0) >> 4);
 
