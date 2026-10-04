@@ -16,11 +16,38 @@ static void seedDirectoryEntry(unsigned index, const AGIFilePosType* entry)
     memCpyBanked((byte*)&logdir[index], (byte*)entry, DIRECTORY_BANK, sizeof(*entry));
 }
 
+static void readPictureDirectoryEntry(unsigned index, AGIFilePosType* entry)
+{
+    memCpyBanked((byte*)entry, (byte*)&picdir[index], DIRECTORY_BANK, sizeof(*entry));
+}
+
+static void seedPictureDirectoryEntry(unsigned index, const AGIFilePosType* entry)
+{
+    memCpyBanked((byte*)&picdir[index], (byte*)entry, DIRECTORY_BANK, sizeof(*entry));
+}
+
 static void writeDirectory(const byte* bytes, unsigned size)
 {
     FILE* output = fopen("logdir", "wb");
     auditCheck(output != 0, "directory fixture creation");
     auditCheck(fwrite(bytes, 1, size, output) == size, "directory fixture write");
+    fclose(output);
+}
+
+static void writeDirectoryRecords(unsigned recordCount)
+{
+    FILE* output = fopen("logdir", "wb");
+    unsigned index;
+    auditCheck(output != 0, "capacity directory fixture creation");
+    for (index = 0; index < recordCount; ++index) {
+        unsigned long position = 0x100UL + index;
+        byte record[3];
+        record[0] = (byte)(((index & 0x0f) << 4) | ((position >> 16) & 0x0f));
+        record[1] = (byte)(position >> 8);
+        record[2] = (byte)position;
+        auditCheck(fwrite(record, 1, sizeof(record), output) == sizeof(record),
+            "capacity directory fixture write");
+    }
     fclose(output);
 }
 
@@ -40,6 +67,35 @@ static void checkPartialDirectory(const byte* bytes, unsigned size, const char* 
     auditCheck(remove("logdir") == 0, "partial directory fixture cleanup");
 }
 
+static void checkDirectoryCapacity(unsigned recordCount, int expectedCount, const char* countMessage)
+{
+    AGIFilePosType sentinel, actual, neighbor;
+    int count = 0;
+    sentinel.fileNum = 0xe7;
+    sentinel.filePos = 0x00abcdefUL;
+    seedDirectoryEntry(recordCount == 0 ? 0 : NO_DIRECTORY_ENTRYS - 1, &sentinel);
+    seedPictureDirectoryEntry(0, &sentinel);
+    writeDirectoryRecords(recordCount);
+    b6LoadAGIDir(0, "logdir", &count);
+    if (recordCount == 0) {
+        readDirectoryEntry(0, &actual);
+        auditCheck(actual.fileNum == sentinel.fileNum && actual.filePos == sentinel.filePos,
+            "empty directory changed its first destination entry");
+    } else {
+        AGIFilePosType expected;
+        expected.fileNum = 15;
+        expected.filePos = 0x000001ffUL;
+        readDirectoryEntry(NO_DIRECTORY_ENTRYS - 1, &actual);
+        auditCheck(actual.fileNum == expected.fileNum && actual.filePos == expected.filePos,
+            "last valid directory entry was not decoded");
+    }
+    readPictureDirectoryEntry(0, &neighbor);
+    auditCheck(neighbor.fileNum == sentinel.fileNum && neighbor.filePos == sentinel.filePos,
+        "directory capacity overflow changed the neighboring picture directory");
+    auditCheck(count == expectedCount, countMessage);
+    auditCheck(remove("logdir") == 0, "capacity directory fixture cleanup");
+}
+
 void readerdirAuditCases(void)
 {
     static const byte complete[] = {0x52, 0x34, 0x56};
@@ -54,6 +110,12 @@ void readerdirAuditCases(void)
         "one-byte directory tail was counted as a record");
     checkPartialDirectory(twoBytes, sizeof(twoBytes),
         "two-byte directory tail was counted as a record");
+
+    checkDirectoryCapacity(0, 0, "empty directory count changed");
+    checkDirectoryCapacity(NO_DIRECTORY_ENTRYS, NO_DIRECTORY_ENTRYS,
+        "256 complete directory records were not all counted");
+    checkDirectoryCapacity(NO_DIRECTORY_ENTRYS + 1, NO_DIRECTORY_ENTRYS,
+        "257 complete directory records exceeded directory capacity");
 
     sentinel.fileNum = 0xe7;
     sentinel.filePos = 0x00abcdefUL;

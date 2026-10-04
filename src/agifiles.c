@@ -182,7 +182,8 @@ void b6LoadAGIDir(int dirNum, const char* fName, int* count)
 		exit(0);
 	}
 
-	while ((byte1 = fgetc(fp)) != EOF &&
+	while (*count < NO_DIRECTORY_ENTRYS &&
+		(byte1 = fgetc(fp)) != EOF &&
 		(byte2 = fgetc(fp)) != EOF &&
 		(byte3 = fgetc(fp)) != EOF) {
 
