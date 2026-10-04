@@ -1766,23 +1766,26 @@ void b4Parse() // 1, 0x00
 void b4Get_num() // 2, 0x40 
 {
 	int messNum, varNum;
-	char* b7Temp;
+	char* inputBuffer;
 	char* messagePointer;
+	char numberText[4];
 	LOGICFile logicFile;
 	byte tempBank;
 
-	b7Temp = (char*)b10BankedAlloc(80, &tempBank);
-
-	b5GetLogicFile(&logicFile, currentLog);
-
 	messNum = loadAndIncWinCode();
 	varNum = loadAndIncWinCode();
+	b5GetLogicFile(&logicFile, currentLog);
+	if (messNum <= 0 || messNum > logicFile.numMessages || !logicFile.messages) return;
+
+	inputBuffer = (char*)b10TryBankedAlloc(80, &tempBank);
+	if (!inputBuffer) return;
 
 	messagePointer = getMessagePointer(currentLog, messNum - 1);
-	b7GetString(messagePointer, logicFile.messageBank, b7Temp, tempBank, 1, 23, 3);
-	var[varNum] = atoi(b7Temp);
+	b7GetString(messagePointer, logicFile.messageBank, inputBuffer, tempBank, 1, 23, 3);
+	memCpyBanked((byte*)numberText, (byte*)inputBuffer, tempBank, sizeof(numberText));
+	var[varNum] = atoi(numberText);
 
-	b10BankedDealloc((byte*)b7Temp, tempBank);
+	b10BankedDealloc((byte*)inputBuffer, tempBank);
 
 	return;
 }
