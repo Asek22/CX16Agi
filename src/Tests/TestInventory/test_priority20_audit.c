@@ -56,6 +56,20 @@ void priority20AuditCases(void)
     second=((unsigned long)updates[0]|((unsigned long)updates[1]<<8))*32;
     auditCheck(testPeek(second)==0,"animated split first column ignored foreground priority");
     testEnableInterrupts();
+    getLoadedCel(&loop,&cel,0); cel.flipped=TRUE; setLoadedCel(&loop,&cel,0);
+    for(i=0;i<80;++i) testPoke(0x44,PRIORITY_START+80UL*80+i);
+    testPoke(0xf4,PRIORITY_START+80UL*80+5);
+    bEResetSpritesUpdatedBuffer();
+    testDisableInterrupts();
+    auditCheck(agiBlit(0,FALSE),"mirrored split fixture rejected valid cel");
+    memCpyBanked(updates,bESpritesUpdatedBuffer,SPRITE_UPDATED_BANK,sizeof(updates));
+    auditCheck(updates[2]==22 && updates[3]==0,"MIRRORED SPLIT FULL COLUMN WAS PLACED USING THE WHOLE CEL WIDTH");
+    auditCheck(updates[9]==214 && updates[10]==255,"mirrored split partial column lost its leading hardware padding");
+    second=((unsigned long)updates[7]|((unsigned long)updates[8]<<8))*32;
+    auditCheck(!testPeek(second),"mirrored partial column sampled priority outside its screen pixel");
+    second=((unsigned long)updates[0]|((unsigned long)updates[1]<<8))*32;
+    auditCheck(testPeek(second)==0x11 && testPeek(second+31)==0x11,"mirrored full column sampled beyond its screen span");
+    testEnableInterrupts();
     bEResetSpritesUpdatedBuffer(); bEResetViewTableMetadata(); b9DiscardView(247); bDResetSpriteMemoryManager();
     auditOutput("PRIORITY20 AUDIT PASS\n");
 }

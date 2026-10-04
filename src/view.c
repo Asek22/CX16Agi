@@ -1423,6 +1423,8 @@ boolean agiBlit(byte entryNum, boolean disableInterupts)
 	boolean isAllocated = FALSE;
 	byte splitCounter; //Store the SPLIT_COUNTER ZP in here as this makes it easier for C to access it 
 	byte splitColumn = 0, splitRowOffset = 0;
+	byte segmentWidth;
+	unsigned int segmentX;
 	byte isAnimated = FALSE;
 	SpriteAllocationSize allocationWidth, allocationHeight;
 	byte combinedSpriteAllocationSize;
@@ -1662,6 +1664,9 @@ saveMetadata:
 
 splitLoop:
 	splitCounter = *((byte*)SPLIT_COUNTER);
+	segmentWidth = localCel.width - splitColumn * (SPR_SIZE_64 / 2);
+	if (segmentWidth > SPR_SIZE_64 / 2) segmentWidth = SPR_SIZE_64 / 2;
+	segmentX = localViewTab.xPos + (localCel.flipped ? localCel.width - splitColumn * (SPR_SIZE_64 / 2) - segmentWidth : splitColumn * (SPR_SIZE_64 / 2));
 	RAM_BANK = localMetadata.viewTableMetadataBank;
 
 setSpritesUpdatedBank:
@@ -1764,17 +1769,8 @@ updateSpriteBuffer:
 	asm("sta (%w)", ZP_SPRITE_STORE_PTR);
 
 	//2 x low
-	_assmUInt = (byte)localViewTab.xPos;
+	_assmUInt = segmentX;
 	_assmByte = localCel.flipped;
-
-	asm("lda %w", SPLIT_OFFSET);
-	asm("beq %g", doubleWidthForScreen);
-
-	asm("clc");
-	asm("adc %v", _assmUInt);
-	asm("sta %v", _assmUInt);
-	asm("bcc %g", doubleWidthForScreen);
-	asm("inc %v + 1", _assmUInt); //The high byte of both things we are adding are zero, therefore we can just increment if there is a carry and ignore this step otherwise
 
 doubleWidthForScreen:
 	asm("ldy #$2");
@@ -1798,7 +1794,7 @@ doubleWidthForScreen:
 
 	//x low and high if flipped (used in addition to what is above, if flipped the code above will put x on the stack so that further calculation can be done below)
 moveXDueToFlipped:
-	_assmByte = localCel.width;
+	_assmByte = segmentWidth;
 	_assmByte2 = localLoop.allocationWidth;
 
 	asm("lda %v", _assmByte);
@@ -1920,7 +1916,7 @@ callCelToVera:
 	asm("sta %w", VERA_ADDRESS_HIGH);
 
 	/* Priority sampling follows the same screen column as the published segment. */
-	_assmByte = localViewTab.xPos + splitColumn * (SPR_SIZE_64 / 2);
+	_assmByte = segmentX;
 	asm("lda %v", _assmByte);
 	asm("sta %w", X_VAL);
 
@@ -1940,7 +1936,7 @@ callCelToVera:
 
 	bECalculateBytesPerRow(localLoop.allocationWidth);
 
-	_assmByte = localCel.width;
+	_assmByte = segmentWidth;
 	asm("lda %v", _assmByte);
 	asm("sta %w", CEL_WIDTH);
 
