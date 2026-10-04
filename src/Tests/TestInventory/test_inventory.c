@@ -46,6 +46,16 @@ extern void blit20AuditCases(void);
 extern void upload20AuditCases(void);
 extern void runtime20AuditCases(void);
 extern void priority20AuditCases(void);
+extern void textlayoutAuditCases(void);
+extern void scriptstringsAuditCases(void);
+extern void menustorageAuditCases(void);
+extern void scriptstreamAuditCases(void);
+extern void textoverlayAuditCases(void);
+extern void readerdirAuditCases(void);
+extern void readerwordsAuditCases(void);
+extern void readerobjectAuditCases(void);
+extern void readerdebugAuditCases(void);
+extern void graphicsapiAuditCases(void);
 static void makeObjects(void)
 {
     objectType object;
@@ -391,6 +401,36 @@ int main(void)
 #endif
 #if defined(AUDIT_CASE_priority20)
     priority20AuditCases();
+#endif
+#if defined(AUDIT_CASE_textlayout)
+    textlayoutAuditCases();
+#endif
+#if defined(AUDIT_CASE_scriptstrings)
+    scriptstringsAuditCases();
+#endif
+#if defined(AUDIT_CASE_menustorage)
+    menustorageAuditCases();
+#endif
+#if defined(AUDIT_CASE_scriptstream)
+    scriptstreamAuditCases();
+#endif
+#if defined(AUDIT_CASE_textoverlay)
+    textoverlayAuditCases();
+#endif
+#if defined(AUDIT_CASE_readerdir)
+    readerdirAuditCases();
+#endif
+#if defined(AUDIT_CASE_readerwords)
+    readerwordsAuditCases();
+#endif
+#if defined(AUDIT_CASE_readerobject)
+    readerobjectAuditCases();
+#endif
+#if defined(AUDIT_CASE_readerdebug)
+    readerdebugAuditCases();
+#endif
+#if defined(AUDIT_CASE_graphicsapi)
+    graphicsapiAuditCases();
 #endif
     output("INVENTORY PASS");
     testExit();
