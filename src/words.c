@@ -335,7 +335,7 @@ void b12LoadWords()
     byte data[2];
     long startPos;
     word wordNum,synNum;
-    int parsedWordCount, parsedSynonymCount;
+    int parsedWordCount, parsedSynonymCount, wordsDataLength = 0;
     char* wordsDataPointer;
     char* newWord = (char*) NEW_WORD_ADDRESS;
     char** wordPointersPointer;
@@ -415,11 +415,13 @@ void b12LoadWords()
 
         wordLength = strlen(newWord) + 1;
 
+        if (wordLength > LARGE_SIZE - wordsDataLength) goto invalidWords;
 
 //#ifdef VERBOSE_WORDS
 //        printf("copying from %p to %p on bank %p length %p\n", &newWord);
 //#endif
         memCpyBanked((byte*)wordsDataPointer, (byte*)newWord, wordsDataBank, wordLength);
+        wordsDataLength += wordLength;
       
         wordsTextStart[wordNum * 3] = newWord[0];
         wordsTextStart[wordNum * 3 + 1] = newWord[1];

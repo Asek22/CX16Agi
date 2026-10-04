@@ -5,6 +5,8 @@
 #include <string.h>
 
 extern byte allocationArray[];
+extern char* wordsData;
+extern byte wordsDataBank;
 
 #pragma wrapped-call (push, trampoline, PALETTE_MANAGER_BANK)
 static void readerwordsAuditCasesInBank(void);
@@ -70,6 +72,8 @@ static int dictionarySynonymCount(void)
     return count;
 }
 
+static char* seedWordsDataEndCanary(byte* bank);
+
 static void makeIndexedWord(char* word, byte wordLength, int index, char first)
 {
     byte letter, identityLength = wordLength < 5 ? wordLength - 1 : 4;
@@ -109,6 +113,8 @@ static void writeIndexedWordsFile(int count, byte wordLength, char first, byte s
 
 static void dictionaryMetadataCapacity(const byte* allocationBaseline, char* query)
 {
+    byte dataBank, canary, loadedBank;
+    char* guardedAllocation, *loadedAllocation;
     auditOutput("WORDS.TOK 1500-ENTRY METADATA BOUNDARY; ");
     writeIndexedWordsFile(1500, 4, 'w', 0, query);
     b12LoadWords();
@@ -137,6 +143,42 @@ static void dictionaryMetadataCapacity(const byte* allocationBaseline, char* que
     checkAllocationBaseline(allocationBaseline, "rejected 1501-entry dictionary leaked allocations");
     auditCheck(remove("words.tok") == 0, "1501-entry WORDS.TOK fixture cleanup");
 
+    auditOutput("WORDS.TOK 8241-BYTE DATA ALLOCATION OVERFLOW; ");
+    guardedAllocation = seedWordsDataEndCanary(&dataBank);
+    writeIndexedWordsFile(201, 40, 'w', 0, query);
+    b12LoadWords();
+    if (dictionaryWordCount() != 0)
+    {
+        memCpyBanked((byte*)&loadedAllocation, (byte*)&wordsData, WORD_BANK, sizeof(loadedAllocation));
+        memCpyBanked(&loadedBank, &wordsDataBank, WORD_BANK, sizeof(loadedBank));
+        auditCheck(loadedAllocation == guardedAllocation && loadedBank == dataBank,
+            "WORDS.TOK end canary does not guard the actual data allocation");
+    }
+    memCpyBanked(&canary, (byte*)guardedAllocation + LARGE_SIZE, dataBank, 1);
+    auditCheck(canary == 0x5a,
+        "8241-byte WORDS.TOK data crossed its 8000-byte allocation end");
+    makeIndexedWord(query, 40, 200, 'w');
+    auditCheck(dictionaryWordCount() == 0 && dictionarySynonymCount() == 0,
+        "8241-byte WORDS.TOK data overflow was published");
+    auditCheck(b12FindSynonymNum(query, RAM_BANK) == -1,
+        "8241-byte WORDS.TOK data overflow remained searchable");
+    b12DiscardWords();
+    b12DiscardWords();
+    checkAllocationBaseline(allocationBaseline, "rejected oversized WORDS.TOK data leaked allocations");
+    auditCheck(remove("words.tok") == 0, "oversized WORDS.TOK fixture cleanup");
+
+
+}
+
+static char* seedWordsDataEndCanary(byte* bank)
+{
+    byte canary = 0x5a;
+    char* allocation = (char*)b10BankedAlloc(LARGE_SIZE, bank);
+    auditCheck((unsigned int)allocation + LARGE_SIZE <= BANK_MAX,
+        "WORDS.TOK allocation has no bank-local end canary");
+    memCpyBanked((byte*)allocation + LARGE_SIZE, &canary, *bank, 1);
+    auditCheck(b10BankedDealloc((byte*)allocation, *bank), "WORDS.TOK canary allocation release");
+    return allocation;
 }
 
 static void readerwordsAuditCasesInBank(void)
