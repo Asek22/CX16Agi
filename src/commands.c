@@ -2009,10 +2009,12 @@ void b5Set_game_id() // 1, 0x00
 	messageNo = loadAndIncWinCode();
 
 	b5GetLogicFile(&logicFile, currentLog);
+	if (!messageNo || messageNo > logicFile.numMessages || !logicFile.messages) return;
 
 	messagePointer = getMessagePointer(currentLog, messageNo - 1);  /* Ignore the game ID. Not important */
 
-	strcpyBanked(gameId, messagePointer, logicFile.messageBank);
+	copyStringFromBanked(messagePointer, gameId, 0, sizeof(gameId), logicFile.messageBank, FALSE);
+	gameId[GAMEID_MAX_LENGTH] = 0;
 
 	b4InitMetadata();
 
@@ -2210,6 +2212,3 @@ void b5SetPriorityBase()
 }
 
 #pragma code-name (pop)
-
-
-
