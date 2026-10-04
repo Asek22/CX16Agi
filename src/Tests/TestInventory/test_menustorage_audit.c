@@ -15,7 +15,7 @@ extern MENU the_menuChildren[];
 extern byte bAMenuChildCount[];
 extern byte bAMenuChildWidth[];
 extern void testDisableInterrupts(void), testEnableInterrupts(void);
-static byte interruptStatus;
+extern byte testStatus(void);
 
 #pragma wrapped-call (push, trampoline, MENU_BANK)
 extern void bAInitMenuState(void), bAMenuChildInit(void);
@@ -23,6 +23,16 @@ extern char* bAStoreMessageInBuffer(LOGICFile* currentLogicFile, byte messageNo)
 extern void bASetMenu(byte messageNo);
 extern void bASetMenuItem(int messageNo, int controllerNumber);
 #pragma wrapped-call (pop)
+
+#pragma wrapped-call (push, trampoline, 1)
+static void menuChildPreservesMaskedIrq(void);
+static byte* seedMessages(byte* data, byte bank);
+static void messageLengths(LOGICFile* file);
+static void fullAndOverflow(LOGICFile* file);
+#pragma wrapped-call (pop)
+
+#pragma code-name (push, "BANKRAM01")
+#pragma rodata-name (push, "BANKRAM01")
 
 static char* nextTextPointer(void)
 {
@@ -65,11 +75,10 @@ static byte* seedMessages(byte* data, byte bank)
 static void menuChildPreservesMaskedIrq(void)
 {
 	/* bASetMenu calls this while its own first-menu critical section is active. */
+    byte interruptStatus;
     testDisableInterrupts();
     bAMenuChildInit();
-    asm("php");
-    asm("pla");
-    asm("sta %v", interruptStatus);
+    interruptStatus = testStatus();
     testEnableInterrupts();
     auditCheck(interruptStatus & 4, "MENU CHILD INIT CLEARED AN INCOMING IRQ MASK");
 }
@@ -173,6 +182,9 @@ static void fullAndOverflow(LOGICFile* file)
     auditCheck(numOfMenus == 0 && nextTextPointer() == base + 300 && childCount == 0,
         "MENU ITEM WAS PUBLISHED AFTER ITS TITLE DID NOT FIT");
 }
+
+#pragma rodata-name (pop)
+#pragma code-name (pop)
 
 void menustorageAuditCases(void)
 {
