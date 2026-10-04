@@ -17,6 +17,8 @@ extern void testPutKey(byte key);
 extern void testObserveIrq(void);
 extern void __fastcall__ testFeedKeys(const byte* keys);
 extern unsigned testVisibleFrames;
+extern volatile unsigned testVsyncIrqs;
+extern byte testStatus(void);
 #pragma wrapped-call (push, trampoline, 6)
 extern void b6InitIrq(void);
 #pragma wrapped-call (pop)
@@ -109,6 +111,7 @@ static void checkClosed(void)
     memCpyBanked(allocation, bDSpriteAllocTable, OBJECT_BANK, sizeof(allocation));
     for (j=0; j<TOTAL_REAL_BLOCKS; ++j) check(allocation[j] == 0, "inspect bitmap not released");
 }
+static void checkVsyncChain(void);
 static void checkArt(byte object, unsigned char expected, byte row, byte column)
 {
     unsigned long address;
@@ -126,6 +129,7 @@ static void checkArt(byte object, unsigned char expected, byte row, byte column)
     }
     check(painted > 100, "big sprite is empty");
     check(!inventoryInspectOpen(object), "second inspect overwrote ownership");
+    checkVsyncChain();
     inventoryInspectClose();
     checkClosed();
 }
@@ -143,6 +147,24 @@ static void number(unsigned long value)
     byte n = 0;
     do { digits[n++] = 48 + value % 10; value /= 10; } while (value);
     while (n) *(volatile byte*)0x9fbb = digits[--n];
+}
+static void checkVsyncChain(void)
+{
+    unsigned int observerBefore = testVsyncIrqs;
+    volatile unsigned int* counter = (volatile unsigned int*)&vSyncCounter;
+    unsigned int gameBefore = *counter;
+    unsigned budget = 0xffffu;
+    while (budget && testVsyncIrqs == observerBefore) --budget;
+    if (testVsyncIrqs != observerBefore && *counter != gameBefore) return;
+    output("INVENTORY FAIL: inspect close did not receive a chained VSYNC; observer ");
+    number(observerBefore); output("->"); number(testVsyncIrqs);
+    output("; game "); number(gameBefore); output("->"); number(*counter);
+    output("; CPU-I "); number((testStatus() & 4) != 0);
+    output("; VERA-IEN "); number(*(volatile byte*)0x9f25);
+    output("; VERA-ISR "); number(*(volatile byte*)0x9f27);
+    output("; IRQ vector "); number(*(volatile byte*)0x0314);
+    output("/"); number(*(volatile byte*)0x0315); output("; ");
+    testExit();
 }
 static void fullInventoryPerformance(void)
 {
@@ -238,7 +260,6 @@ extern byte inventoryBuffer[], inventoryLength, inventoryWrite;
 extern void inventoryTransfer(void);
 extern void testDisableInterrupts(void);
 extern void testEnableInterrupts(void);
-extern byte testStatus(void);
 static void transferStateCases(void)
 {
     static byte lengths[] = {0,1,7,8,9,31,32,71,72,73,79,80};
@@ -322,6 +343,7 @@ int main(void)
     memCpyBanked(baselineAllocations, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(baselineAllocations));
     for (i=0; i<8; ++i) { mouseAttrs[i] = i == 6 ? 0 : i+32; testPoke(mouseAttrs[i], SPRITE_ATTRIBUTES_START+i); }
     b6InitIrq();
+    testVsyncIrqs = 0;
     testObserveIrq();
     seedBackground();
     flag[13] = TRUE;

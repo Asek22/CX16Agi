@@ -20,11 +20,12 @@ _testPoke:
     rts
 
 ; Observe visibility at actual VSYNC, then chain the real game/KERNAL IRQ.
-.export _testObserveIrq, _testVisibleFrames
+.export _testObserveIrq, _testVisibleFrames, _testVsyncIrqs
 .import _inventoryActive
 .bss
 savedIrq: .res 2
 _testVisibleFrames: .res 2
+_testVsyncIrqs: .res 2
 feedActive: .res 1
 feedDelay: .res 1
 .code
@@ -45,6 +46,10 @@ observeIrq:
     lda $9f27
     and #1
     beq @chain
+    inc _testVsyncIrqs
+    bne :+
+    inc _testVsyncIrqs+1
+:
     lda _inventoryActive
     beq :+
     jsr feedKey
