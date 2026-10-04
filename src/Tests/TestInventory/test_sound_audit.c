@@ -5,7 +5,7 @@
 #include <string.h>
 
 #define SOUND_AUDIT_BANK 0x0f
-#define SOUND_POOL_BANK 0x0a
+#define SOUND_POOL_BANK 0x01
 
 #pragma wrapped-call (push, trampoline, SOUND_AUDIT_BANK)
 extern void soundAuditBankCases(void);
@@ -198,8 +198,8 @@ static void lookaheadCase(void)
 
 #pragma code-name (pop)
 #pragma rodata-name (pop)
-#pragma code-name (push, "BANKRAM0A")
-#pragma rodata-name (push, "BANKRAM0A")
+#pragma code-name (push, "BANKRAM01")
+#pragma rodata-name (push, "BANKRAM01")
 
 static unsigned soundPoolAllocationCount(void)
 {
