@@ -79,13 +79,16 @@ char b6SpriteDebugFileName[] = "agi.cx16.spritedebug";
 extern boolean b5IsDebuggingEnabled();
 extern boolean b5IsSpriteDebuggingEnabled();
 
-void b5DebugFileRead(char* debugFileName, byte* ptrDebugBank)
+unsigned int b5DebugFileRead(char* debugFileName, byte* ptrDebugBank)
 {
 
 	byte lfn;
 	byte i;
 	byte* debugBankPtr;
 	int readSize;
+	int bytesRead;
+	int bytesToRead;
+	unsigned int bytesLoaded = 0;
 
 #define NO_READ_SIZES 4
 
@@ -94,16 +97,23 @@ void b5DebugFileRead(char* debugFileName, byte* ptrDebugBank)
 	debugBankPtr = b10BankedAlloc(LARGE_SIZE, ptrDebugBank);
 
 	printf(b5InitializingDebug, *ptrDebugBank);
-	for (i = 0; i < NO_READ_SIZES; i++)
+	for (i = 0; i < NO_READ_SIZES && bytesLoaded < LARGE_SIZE; i++)
 	{
 		readSize = b5ReadSizes[i];
-		while (cbm_read(lfn, GOLDEN_RAM_WORK_AREA, readSize))
+		while (bytesLoaded < LARGE_SIZE)
 		{
-			memCpyBanked(debugBankPtr, GOLDEN_RAM_WORK_AREA, *ptrDebugBank, readSize);
-			debugBankPtr += readSize;
+			bytesToRead = LARGE_SIZE - bytesLoaded;
+			if (bytesToRead > readSize) bytesToRead = readSize;
+			bytesRead = cbm_read(lfn, GOLDEN_RAM_WORK_AREA, bytesToRead);
+			if (bytesRead <= 0) break;
+			if (bytesRead > bytesToRead) bytesRead = bytesToRead;
+			memCpyBanked(debugBankPtr, GOLDEN_RAM_WORK_AREA, *ptrDebugBank, bytesRead);
+			debugBankPtr += bytesRead;
+			bytesLoaded += bytesRead;
 		}
 	}
 	cbm_close(lfn);
+	return bytesLoaded;
 }
 
 void b5InitializeDebugging()
