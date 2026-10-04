@@ -126,7 +126,12 @@ void b7HandleDirection(int dirn)
 void b7GetString(char* promptStr, byte promptStringBank, char* returnStr, byte returnStrBank, int x, int y, int l)
 {
 	int ch, gx, gy;
+	size_t inputLength;
 	boolean stillInputing = TRUE;
+	if (l < 0) l = 0;
+	if (l >= sizeof(b7CurrentInputStr)) l = sizeof(b7CurrentInputStr) - 1;
+	strPos = 0;
+	b7CurrentInputStr[0] = 0;
 
 	gx = (x - 1) * 16;
 	gy = ((y - 1) * 16) + 20;
@@ -144,7 +149,10 @@ void b7GetString(char* promptStr, byte promptStringBank, char* returnStr, byte r
 			case 0x1B:
 				break;
 			case 0x0D:  /* ENTER */
-				strcpy(returnStr, b7CurrentInputStr);
+				inputLength = 0;
+				while (inputLength < sizeof(b7CurrentInputStr) - 1 && b7CurrentInputStr[inputLength]) inputLength++;
+				memCpyBankedBetween((byte*)returnStr, returnStrBank,
+					(byte*)b7CurrentInputStr, PARSER_BANK, inputLength + 1);
 				while (key[KEY_ENTER]) { /* Wait until ENTER released */ }
 				return;
 			case 0x08: /* Backspace */
@@ -155,7 +163,7 @@ void b7GetString(char* promptStr, byte promptStringBank, char* returnStr, byte r
 				break;
 			case 0x0A: break;
 			default:
-				if (strPos == l) break;
+				if (strPos >= l) break;
 				b7CurrentInputStr[strPos] = (ch & 0xff);
 				strPos++;
 				b7CurrentInputStr[strPos] = 0;
@@ -163,13 +171,17 @@ void b7GetString(char* promptStr, byte promptStringBank, char* returnStr, byte r
 				break;
 			}
 		}
-	} while (ch);
+	} while (TRUE);
 }
 
 /* used by get.string and get.num */
 void b7GetInternalString(char* promptStr, byte promptStringBank, byte stringNumber, int x, int y, int l)
 {
-	char* inputString = string[stringNumber];
+	char* inputString;
+	if (stringNumber >= sizeof(string) / sizeof(string[0])) return;
+	if (l < 0) l = 0;
+	if (l >= sizeof(string[stringNumber])) l = sizeof(string[stringNumber]) - 1;
+	inputString = string[stringNumber];
 	b7GetString(promptStr, promptStringBank, inputString, PARSER_BANK, x, y, l);
 }
 
