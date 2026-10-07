@@ -32,7 +32,6 @@ iny
 
 .macro CLEAR_SPRITE_ATTRS
 .local @loop
-.local @end
 
 
 SET_VERA_START_SPRITE_ATTRS #$1, #4, SA_VERA_ZORDER ;Set VERA channel 0 to first zorder attribute with a stride of 4.
@@ -44,12 +43,12 @@ sta VERA_addr_low
 stx VERA_addr_high
 sty VERA_addr_bank
 
+ldx #(NO_SPRITES - 1) ;Slots 1..126; slot 0 is the mouse and slot 127 is reserved for inspect.
 @loop:
 lda VERA_data0 ; A zorder of zero means disabled
-beq @end
 stz VERA_data1
-bra @loop
-@end:
+dex
+bne @loop
 .endmacro
 
 .macro CLEAR_ACTIVE_SPRITE_ATTRS ;Excludes mouse
@@ -113,7 +112,9 @@ jmp @end
 
 @start:
 
-CLEAR_SPRITE_ATTRS
+; Engine update records occupy contiguous slots starting at 1. Keep the IRQ
+; clear proportional to the previous active run; reset uses the full bounded scan.
+CLEAR_ACTIVE_SPRITE_ATTRS
 .import _sResetCounter
 
 SET_VERA_START_SPRITE_ATTRS #$0, #$1, SA_VERA_ADDRESS_LOW ; Sets VERA channel 0 to the start of the sprites attributes table with a stride of 1

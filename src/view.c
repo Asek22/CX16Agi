@@ -2087,13 +2087,15 @@ void bAResetViewtabs(boolean fullReset)
 
 void bAResetSpriteMemory(boolean clearBuffer)
 {
-	if (clearBuffer)
-	{
-		bEResetSpritesUpdatedBuffer();
-	}
+	(void)clearBuffer;
+	asm("php");
+	asm("sei");
+	bEClearSpriteAttributes();
+	bEResetSpritesUpdatedBuffer();
 	bEResetViewTableMetadata();
 	bEResetSpritePointers();
 	bDResetSpriteMemoryManager();
+	asm("plp");
 }
 
 void bAReset()
