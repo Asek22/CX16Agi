@@ -44,15 +44,21 @@
 #define DEFAULT_PRIORITY_BASE 48
 
 byte priorityBase = DEFAULT_PRIORITY_BASE;
+volatile byte bERetirementCount;
+volatile byte bERetirementReadyCount;
 
 #define NO_PRIORITIES (MAX_SPRITE_PRIORITY - MIN_SPRITE_PRIORITY)
 
-#define BYTES_PER_SPRITE_UPDATE 7
-#define SPRITE_UPDATED_BUFFER_SIZE 256
 extern byte bESpritesUpdatedBuffer[SPRITE_UPDATED_BUFFER_SIZE];
 
-//These views are believed to have sprite memory allocated. It is possible for the value to be falsely true, but not falsely false. 
-boolean viewsWithSpriteMem[VIEW_TABLE_SIZE];
+typedef struct {
+	byte width, height, slots;
+	byte addresses[MAX_SPRITES_SLOTS_PER_VIEW_TAB][3];
+} BackBufferRetirement;
+
+#pragma bss-name (push, "BANKRAM0B")
+static BackBufferRetirement backBufferRetirements[MAX_BACKBUFFER_RETIREMENTS];
+#pragma bss-name (pop)
 
 extern byte* bESpritesUpdatedBufferPointer;
 
@@ -919,6 +925,9 @@ ViewTable viewtab[VIEW_TABLE_SIZE];
 #pragma bss-name (pop)
 #pragma bss-name (push, "BANKRAM0E")
 ViewTableMetadata viewTableMetadata[SPRITE_SLOTS];
+static byte bERetirementHead;
+// These view flags are hints, so false positives are harmless.
+boolean viewsWithSpriteMem[VIEW_TABLE_SIZE];
 
 #define VIEWNO_TO_METADATA_NO_SET SPRITE_SLOTS + 1
 byte viewTabNoToMetaData[MAXVIEW];
@@ -1028,6 +1037,9 @@ void bEResetViewTableMetadata()
 		viewTableMetadata[i].backBuffers = NULL;
 		viewTableMetadata[i].isOnBackBuffer = FALSE;
 		viewTableMetadata[i].backBufferSize = 0;
+		viewTableMetadata[i].backBufferWidth = 0;
+		viewTableMetadata[i].backBufferHeight = 0;
+		viewTableMetadata[i].backBufferSlots = 0;
 	}
 
 	memset(&viewTabNoToMetaData[0], VIEWNO_TO_METADATA_NO_SET, MAXVIEW);
@@ -1037,6 +1049,7 @@ void bEResetSpritePointers()
 	nextSpriteAttribute = SPRITE_ATTRIBUTES_START;
 	nextSpriteSlot = 0;
 	nextViewMetadataSlot = 0;
+	memset(viewsWithSpriteMem, 0, VIEW_TABLE_SIZE);
 }
 void bEResetSpritesUpdatedBuffer()
 {
@@ -1121,6 +1134,11 @@ boolean bESetViewMetadata(View* localView, ViewTable* viewTable, byte viewNum, b
 	metadata.backBuffers = (VeraSpriteAddress*)((unsigned int)metadata.veraAddresses +
 		(unsigned int)(numberVeraAddresses * sizeof(VeraSpriteAddress)));
 	metadata.viewNum = viewNum;
+	metadata.isOnBackBuffer = FALSE;
+	metadata.backBufferSize = 0;
+	metadata.backBufferWidth = 0;
+	metadata.backBufferHeight = 0;
+	metadata.backBufferSlots = 0;
 
 #ifdef VERBOSE_DEBUG_SET_METADATA
 	printf("Allocated the following addresses %p, %p. The size is %d + %d = %d. The bank is %d\n", metadata.loopVeraAddressesPointers, metadata.veraAddresses, loopVeraAddressesPointersSize, veraAddressesSize, totalAllocationSize, metadata.viewTableMetadataBank);
@@ -1416,7 +1434,165 @@ boolean bEAllocateSpriteMemory(Loop* localLoop, byte noToBlit)
 
 	return TRUE;
 }
+
+boolean bEAllocateBackBuffer(ViewTableMetadata* metadata, Loop* localLoop, byte slots,
+	byte entryNum, byte width, byte height)
+{
+	if (!bEAllocateSpriteMemory(localLoop, slots)) return FALSE;
+	viewsWithSpriteMem[entryNum] = TRUE;
+	metadata->isOnBackBuffer = TRUE;
+	metadata->backBufferSize = width + height;
+	metadata->backBufferWidth = width;
+	metadata->backBufferHeight = height;
+	metadata->backBufferSlots = slots;
+	return TRUE;
+}
+
+boolean bECanRetireBackBuffer(void)
+{
+	return bERetirementCount < MAX_BACKBUFFER_RETIREMENTS;
+}
+
+void bECollectRetiredBackBuffers(void);
+
+void bEQueueRetiredBackBuffer(BackBufferRetirement* retirement)
+{
+	byte tail;
+
+	if (!retirement->slots || retirement->slots > MAX_SPRITES_SLOTS_PER_VIEW_TAB) return;
+	asm("php");
+	asm("sei");
+	if (!bECanRetireBackBuffer())
+	{
+		asm("plp");
+		return;
+	}
+	tail = bERetirementHead + bERetirementCount;
+	if (tail >= MAX_BACKBUFFER_RETIREMENTS) tail -= MAX_BACKBUFFER_RETIREMENTS;
+	memCpyBanked((byte*)&backBufferRetirements[tail], (byte*)retirement,
+		VIEW_CODE_BANK_3, sizeof(*retirement));
+	++bERetirementCount;
+	asm("plp");
+}
+
+static boolean bEBackBufferUpdatePending(VeraSpriteAddress* addresses, byte slots)
+{
+	unsigned int offset, end;
+	byte i, addressLow, addressHigh;
+
+	end = bESpritesUpdatedBufferPointer - bESpritesUpdatedBuffer;
+	for (offset = 0; offset < end; offset += SPRITE_UPDATE_RECORD_SIZE)
+	{
+		addressLow = bESpritesUpdatedBuffer[offset];
+		addressHigh = bESpritesUpdatedBuffer[offset + 1];
+		for (i = 0; i < slots; ++i)
+		{
+			if (addressLow == (byte)(addresses[i] >> 5) &&
+				addressHigh == (byte)(addresses[i] >> 13)) return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+boolean bEPrepareBackBufferRetirement(ViewTableMetadata* metadata, byte width, byte height,
+	BackBufferRetirement* retirement)
+{
+	VeraSpriteAddress addresses[MAX_SPRITES_SLOTS_PER_VIEW_TAB];
+	unsigned long address, firstAddress;
+	byte slots, i;
+
+	retirement->slots = 0;
+	_assmULong = 0;
+	if (!metadata->backBuffers) return TRUE;
+	memCpyBanked((byte*)&firstAddress, (byte*)metadata->backBuffers,
+		metadata->viewTableMetadataBank, sizeof(firstAddress));
+	if (metadata->backBufferWidth == width && metadata->backBufferHeight == height)
+	{
+		_assmULong = firstAddress;
+		return TRUE;
+	}
+	if (!firstAddress)
+	{
+		return TRUE;
+	}
+
+	bECollectRetiredBackBuffers();
+	if (!metadata->backBufferWidth || !metadata->backBufferHeight ||
+		!metadata->backBufferSlots || metadata->backBufferSlots > MAX_SPRITES_SLOTS_PER_VIEW_TAB ||
+		!bECanRetireBackBuffer())
+	{
+		return FALSE;
+	}
+
+	slots = metadata->backBufferSlots;
+	memCpyBanked((byte*)addresses, (byte*)metadata->backBuffers,
+		metadata->viewTableMetadataBank, slots * sizeof(VeraSpriteAddress));
+	if (bEBackBufferUpdatePending(addresses, slots))
+	{
+		return FALSE;
+	}
+
+	retirement->width = metadata->backBufferWidth;
+	retirement->height = metadata->backBufferHeight;
+	retirement->slots = slots;
+	for (i = 0; i < slots; ++i)
+	{
+		address = addresses[i];
+		retirement->addresses[i][0] = (byte)address;
+		retirement->addresses[i][1] = (byte)(address >> 8);
+		retirement->addresses[i][2] = (byte)(address >> 16);
+	}
+	return TRUE;
+}
+
+void bECollectRetiredBackBuffers(void)
+{
+	BackBufferRetirement retirement;
+	unsigned long address;
+	byte i;
+
+	while (1)
+	{
+		asm("php");
+		asm("sei");
+		if (!bERetirementReadyCount || !bERetirementCount)
+		{
+			asm("plp");
+			break;
+		}
+		memCpyBanked((byte*)&retirement, (byte*)&backBufferRetirements[bERetirementHead],
+			VIEW_CODE_BANK_3, sizeof(retirement));
+		if (++bERetirementHead == MAX_BACKBUFFER_RETIREMENTS) bERetirementHead = 0;
+		--bERetirementCount;
+		--bERetirementReadyCount;
+		asm("plp");
+		for (i = 0; i < retirement.slots; ++i)
+		{
+			address = (unsigned long)retirement.addresses[i][0] |
+				((unsigned long)retirement.addresses[i][1] << 8) |
+				((unsigned long)retirement.addresses[i][2] << 16);
+			bDDeleteAllocation(address, (SpriteAllocationSize)retirement.width,
+				(SpriteAllocationSize)retirement.height);
+		}
+	}
+}
+
+void bEResetBackBufferRetirements(void)
+{
+	bERetirementHead = 0;
+	bERetirementCount = 0;
+	bERetirementReadyCount = 0;
+}
 #pragma code-name (pop)
+
+#pragma wrapped-call (push, trampoline, SPRITE_METADATA_BANK)
+extern void bEQueueRetiredBackBuffer(BackBufferRetirement* retirement);
+extern boolean bEPrepareBackBufferRetirement(ViewTableMetadata* metadata, byte width, byte height,
+	BackBufferRetirement* retirement);
+extern boolean bEAllocateBackBuffer(ViewTableMetadata* metadata, Loop* localLoop, byte slots,
+	byte entryNum, byte width, byte height);
+extern void bEResetBackBufferRetirements(void);
+#pragma wrapped-call (pop)
 
 //Expect ZP to be properly set up. See celToVera function in assembly for further details.
 extern void celToVera();
@@ -1439,15 +1615,22 @@ boolean agiBlit(byte entryNum, boolean disableInterupts)
 	ViewTableMetadata localMetadata;
 	VeraSpriteAddress* loopVeraAddresses;
 	VeraSpriteAddress loopVeraAddress, tempVeraAddress; //Put out here so it can be accessed by inline assembly without going via a C variable
-	boolean isAllocated = FALSE;
 	byte splitCounter; //Store the SPLIT_COUNTER ZP in here as this makes it easier for C to access it 
 	byte splitColumn = 0, splitRowOffset = 0;
 	byte segmentWidth;
 	unsigned int segmentX;
 	byte isAnimated = FALSE;
+	byte previousIrqStatus;
 	SpriteAllocationSize allocationWidth, allocationHeight;
-	byte combinedSpriteAllocationSize;
+	BackBufferRetirement retiredBackBuffer;
 	unsigned int updateOffset;
+	retiredBackBuffer.slots = 0;
+	asm("php");
+	asm("sei");
+	asm("pla");
+	asm("sta %v", _assmByte);
+	previousIrqStatus = _assmByte;
+	if (!(previousIrqStatus & 4)) asm("cli");
 	
 // if(entryNum != 0)
 // {
@@ -1476,8 +1659,9 @@ boolean agiBlit(byte entryNum, boolean disableInterupts)
 	getLoadedCel(&localLoop, &localCel, localViewTab.currentCel);
 	updateOffset = bESpritesUpdatedBufferPointer - bESpritesUpdatedBuffer;
 	if (localCel.splitSegments > MAX_SPRITES_SLOTS_PER_VIEW_TAB ||
+		localView.maxVeraSlots > MAX_SPRITES_SLOTS_PER_VIEW_TAB ||
 		updateOffset > SPRITE_UPDATED_BUFFER_SIZE - 2 ||
-		updateOffset + (localCel.splitSegments ? localCel.splitSegments : 1) * BYTES_PER_SPRITE_UPDATE + 2 > SPRITE_UPDATED_BUFFER_SIZE)
+		updateOffset + (localCel.splitSegments ? localCel.splitSegments : 1) * SPRITE_UPDATE_RECORD_SIZE + 2 > SPRITE_UPDATED_BUFFER_SIZE)
 	{
 		RAM_BANK = previousBank;
 		return FALSE;
@@ -1550,7 +1734,6 @@ boolean agiBlit(byte entryNum, boolean disableInterupts)
 		if (!bESetLoop(&localViewTab, &localMetadata, &localView, loopVeraAddresses, entryNum))
 		{
 			RAM_BANK = previousBank;
-
 			return FALSE;
 		}
 	}
@@ -1611,17 +1794,11 @@ animatedSprite:
 		break;
 	}
 
-	combinedSpriteAllocationSize = allocationWidth + allocationHeight;
-
-	RAM_BANK = localMetadata.viewTableMetadataBank;
-	_assmULong = localMetadata.backBuffers[0];
-
-	RAM_BANK = SPRITE_METADATA_BANK;
-
-	if (localMetadata.backBufferSize != combinedSpriteAllocationSize)
+	if (!bEPrepareBackBufferRetirement(&localMetadata, allocationWidth, allocationHeight,
+		&retiredBackBuffer))
 	{
-		_assmULong = NULL;
-		//TODO: Add old backbuffer to delete queue
+		RAM_BANK = previousBank;
+		return FALSE;
 	}
 
 	asm("lda %v", _assmULong);
@@ -1636,18 +1813,11 @@ jumpInvert:
 	asm("jmp %g", invert);
 
 initialise:
-	if (!isAllocated)
+	if (!bEAllocateBackBuffer(&localMetadata, &localLoop, localView.maxVeraSlots,
+		entryNum, allocationWidth, allocationHeight))
 	{
-		viewsWithSpriteMem[entryNum] = TRUE;
-		if (!bEAllocateSpriteMemory(&localLoop, localView.maxVeraSlots))
-		{
-			return FALSE;
-		}
-
-		localMetadata.isOnBackBuffer = TRUE;
-		localMetadata.backBufferSize = combinedSpriteAllocationSize;
-
-		isAllocated = TRUE;
+		RAM_BANK = previousBank;
+		return FALSE;
 	}
 
 	memCpyBankedBetween((byte*)localMetadata.backBuffers, localMetadata.viewTableMetadataBank, (byte*)bEBulkAllocatedAddresses, SPRITE_METADATA_BANK, localView.maxVeraSlots * sizeof(VeraSpriteAddress));
@@ -1687,6 +1857,7 @@ switchToBackBuffer:
 	_assmByte = localLoop.allocationWidth;
 	bEClearVeraSprite(localLoop.allocationWidth, localLoop.allocationHeight);
 saveMetadata:
+	RAM_BANK = SPRITE_METADATA_BANK;
 	viewTableMetadata[entryNum] = localMetadata;
 
 splitLoop:
@@ -1977,7 +2148,7 @@ celToVeraBackwards:
 	bECelToVeraBackwards();
 
 updateBufferPointer:
-	bESpritesUpdatedBufferPointer += BYTES_PER_SPRITE_UPDATE;
+	bESpritesUpdatedBufferPointer += SPRITE_UPDATE_RECORD_SIZE;
 
 	if (++splitColumn == localCel.veraSlotsWidth)
 	{
@@ -1997,10 +2168,14 @@ endBlit:
 
 
 	setViewTab(&localViewTab, entryNum);
+	if (retiredBackBuffer.slots)
+	{
+		bEQueueRetiredBackBuffer(&retiredBackBuffer);
+	}
 
 	if (disableInterupts)
 	{
-		REENABLE_INTERRUPTS();
+		if (!(previousIrqStatus & 4)) REENABLE_INTERRUPTS();
 	}
 
 	RAM_BANK = previousBank;
@@ -2092,6 +2267,7 @@ void bAResetSpriteMemory(boolean clearBuffer)
 	asm("sei");
 	bEClearSpriteAttributes();
 	bEResetSpritesUpdatedBuffer();
+	bEResetBackBufferRetirements();
 	bEResetViewTableMetadata();
 	bEResetSpritePointers();
 	bDResetSpriteMemoryManager();
@@ -2156,8 +2332,6 @@ void bAResetViews()     /* Called after new.room */
 {
 	int entryNum;
 	ViewTable localViewtab;
-
-	memset(viewsWithSpriteMem, 0, VIEW_TABLE_SIZE);
 
 	for (entryNum = 0; entryNum < VIEW_TABLE_SIZE; entryNum++) {
 		getViewTab(&localViewtab, entryNum);

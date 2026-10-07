@@ -40,6 +40,8 @@ VIEW_INC = 1
 .import _b11GetNumberOfCels
 .import _offsetOfCurrentView
 .import _bETerminateSpriteBuffer
+.import _bERetirementReadyCount
+.import _bECollectRetiredBackBuffers
 .import _agiBlit
 .import _offsetOfEntryNum
 .import _viewsWithSpriteMem
@@ -2028,6 +2030,11 @@ b9ObjectList: .res VIEW_TABLE_SIZE * 2
 b9UpdateObjects:
 
         stz UPDATE_OBJ_NUM_OBJS         ; Reset number of objects to update this frame
+        ; Ready count lives in fixed BSS; records live in bank 0B.
+        lda _bERetirementReadyCount
+        beq @retirementCollectionDone
+        JSRFAR _bECollectRetiredBackBuffers, SPRITE_METADATA_BANK
+@retirementCollectionDone:
 
         ; Set indirect jump target to the routine that populates the object list
         lda #<b9PrepareUpdateObjectsList

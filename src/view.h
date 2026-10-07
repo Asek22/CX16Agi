@@ -39,6 +39,10 @@ extern byte* var;
 #define FIXLOOP       0x2000
 
 #define MAX_SPRITES_SLOTS_PER_VIEW_TAB 6
+#define SPRITE_UPDATED_BUFFER_SIZE 256
+#define SPRITE_UPDATE_RECORD_SIZE 7
+/* A pending address record blocks a second retirement for the same metadata slot. */
+#define MAX_BACKBUFFER_RETIREMENTS SPRITE_SLOTS
 extern BITMAP* spriteScreen;
 
 extern void getViewTab(ViewTable* returnedViewTab, byte viewTabNumber);

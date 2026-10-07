@@ -61,6 +61,9 @@ typedef struct ViewTableMetadata {
 	VeraSpriteAddress* backBuffers;
 	boolean isOnBackBuffer;
 	byte backBufferSize;
+	byte backBufferWidth;
+	byte backBufferHeight;
+	byte backBufferSlots;
 } ViewTableMetadata;
 
 typedef struct Cel {

@@ -94,6 +94,8 @@ rts
 ;7 Reblit
 
 .import _viewSeen
+.import _bERetirementCount
+.import _bERetirementReadyCount
 
 ZP_SPR_ATTR_SIZE = ZP_TMP_5
 ZP_LOW_BYTE = ZP_TMP_5 + 1
@@ -111,6 +113,7 @@ bne @start
 jmp @end
 
 @start:
+stz @updatesApplied
 
 ; Engine update records occupy contiguous slots starting at 1. Keep the IRQ
 ; clear proportional to the previous active run; reset uses the full bounded scan.
@@ -131,6 +134,8 @@ bne @displaySprites
 jmp @addressReset
 
 @displaySprites:
+lda #$1
+sta @updatesApplied
 GET_NEXT_FROM_SPRITE_UPDATE_BUFFER ;X Low 2 (buffer 2)
 
 GET_NEXT_FROM_SPRITE_UPDATE_BUFFER ;X High 3 (buffer 3)
@@ -148,6 +153,11 @@ GET_NEXT_FROM_SPRITE_UPDATE_BUFFER ;Sprite Attr Size 7 (buffer 6)
 jmp @loop
 
 @addressReset:
+lda @updatesApplied
+beq @resetBuffer
+lda _bERetirementCount
+sta _bERetirementReadyCount
+@resetBuffer:
 lda #< _bESpritesUpdatedBuffer
 sta _bESpritesUpdatedBufferPointer
 lda #> _bESpritesUpdatedBuffer
@@ -157,4 +167,5 @@ sta _bESpritesUpdatedBufferPointer + 1
 
 rts
 @flipped: .byte $0
+@updatesApplied: .byte $0
 .endif
