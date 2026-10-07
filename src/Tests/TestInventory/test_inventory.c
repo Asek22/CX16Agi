@@ -63,6 +63,9 @@ extern void readerobjectAuditCases(void);
 extern void readerdebugAuditCases(void);
 extern void readerfilenameAuditCases(void);
 extern void graphicsapiAuditCases(void);
+#pragma wrapped-call (push, trampoline, CONTROLLER_BANK)
+extern void backbufferAuditCases(void);
+#pragma wrapped-call (pop)
 static void makeObjects(void)
 {
     objectType object;
@@ -477,6 +480,9 @@ int main(void)
 #endif
 #if defined(AUDIT_CASE_graphicsapi)
     graphicsapiAuditCases();
+#endif
+#if defined(AUDIT_CASE_backbuffer)
+    backbufferAuditCases();
 #endif
     output("INVENTORY PASS");
     testExit();
