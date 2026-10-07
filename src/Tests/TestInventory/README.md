@@ -81,3 +81,20 @@ The runner requires `flock` and serializes compilation and emulator execution wi
 Rerun any new group with the command at the top and `INVENTORY_TEST_CASE=readerfilename`, `readerdir`, `readerobject`, `readerwords`, `readerdebug`, `menustorage`, `textlayout`, `textoverlay`, `scriptstrings`, `scriptstream`, or `graphicsapi`. These native checks cover pixels, ownership, interpreter continuation and CPU cost; manual game visuals and audible playback remain outside their scope.
 
 Final campaign validation passed all 26 inventory images, the banked-copy suite and the product build. IRQ, menu-storage and sound-pool test helpers were placed in existing banks to keep every image within the unchanged linker limits. Deliberate compiler failures in both suites also removed their fixture directories; final inspection found no `case.*` directories or product-root runtime inputs.
+
+Backbuffer retirement adds `test_backbuffer_audit.c`. The original resize case failed with `REPEATED BACK-BUFFER RESIZE LEAKED VRAM OWNERSHIP`. The retained case alternates small and large loops for 24 pairs, crosses the retirement ring's wrap point, and checks RAM/VRAM ownership after every pair. It uses real `agiBlit`, sprite IRQ publication and normal `b9AnimateObjects` collection. Additional cases cover two objects, a later publication before collection, split spans with different allocation geometry and a live neighboring canary, refusal to resize an unpublished buffer, partial allocation rollback and retry, and repeated room resets with pending retirements.
+
+Old spans retain their original addresses, dimensions and slot count until the IRQ finishes applying replacement attributes. The IRQ acknowledges a bounded queue prefix; main code releases that prefix. Room reset disables engine sprite attributes and discards pending updates before freeing ownership, including active slots after a disabled gap, while retaining the mouse and reserved inspect attributes. The existing `metadata` case also caught a restored-view write through the payload bank; the shared metadata write now selects its owning bank explicitly.
+
+The eight-call steady-blit workload measures 26,569 cycles per call in the final linked image and retains a 30,000-cycle ceiling. Timing masks IRQs; publication, pixels and ownership are checked outside the timed interval. Full validation passes 27 inventory images, `test-banked-copy` and the product build within the unchanged memory limits. Success and deliberate compiler failure leave no fixture directories. These native checks do not replace a manual game playthrough.
+
+Focused rerun using the verified local tools:
+
+```sh
+make test-inventory INVENTORY_TEST_CASE=backbuffer \
+  INVENTORY_TEST_CC=/home/arbitrator/tools/cc65-latest/bin/cl65 \
+  INVENTORY_TEST_EMU=/home/arbitrator/Documents/1-Projects/CX16Agi-NEEDS-MERGING/cx16emu/x16emu \
+  INVENTORY_TEST_ROM=/home/arbitrator/Documents/1-Projects/CX16Agi-NEEDS-MERGING/cx16emu/rom.bin
+```
+
+Use `INVENTORY_TEST_CASE=metadata` for the cache-state regression, or omit the case selector to run the complete matrix. Both groups create and clean their inputs under `obj/cx16/tests/inventory`.
