@@ -39,6 +39,8 @@ extern void scriptstringsAuditBankedCases(void);
 #pragma wrapped-call (push, trampoline, 0x07)
 static void getNumSurvivesAllocationFailure(void);
 static void getNumCopiesInputFromItsBank(void);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, 0x09)
 static void writeParserString(byte slot, const char* value, byte valueBank);
 static void writeParserWord(byte slot, const char* value, byte valueBank);
 #pragma wrapped-call (pop)
@@ -62,8 +64,8 @@ static void storeHeldAllocation(byte* table, byte tableBank, unsigned int index,
 #pragma code-name (push, "BANKRAM01")
 #pragma rodata-name (push, "BANKRAM01")
 
-#pragma code-name (push, "BANKRAM07")
-#pragma rodata-name (push, "BANKRAM07")
+#pragma code-name (push, "BANKRAM09")
+#pragma rodata-name (push, "BANKRAM09")
 static void writeParserString(byte slot, const char* value, byte valueBank)
 {
     char buffer[40];
