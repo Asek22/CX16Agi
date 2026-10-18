@@ -151,9 +151,10 @@ sta RAM_BANK
     INC_CODE
 
     DEBUG_JUMP ZP_PTR_B1, ZP_PTR_B2
-    LEFT_SHIFT_BY_8 ZP_PTR_B2, ZP_PTR_DISP
-    
-    ORA_16 ZP_PTR_B1, ZP_PTR_DISP, ZP_PTR_DISP
+    lda ZP_PTR_B1
+    sta ZP_PTR_DISP
+    lda ZP_PTR_B2
+    sta ZP_PTR_DISP + 1
 
     INC_CODE_BY ZP_PTR_DISP
 .endmacro

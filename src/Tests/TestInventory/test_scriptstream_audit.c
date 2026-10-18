@@ -110,8 +110,51 @@ static void runOrSaidSkip(byte count)
     auditCheck(b10BankedDealloc(code, bank), "OR SAID SCRIPT LEAKED BYTECODE BUFFER");
 }
 
+static void runFalseIfGotoIgnoresStaleHighByte(void)
+{
+    LOGICEntry entry, savedEntry;
+    LOGICFile file, savedFile;
+    static byte script[] = {
+        0xff, 7, 2, 0xff, 2, 0,
+        1, 250, 1, 251, 0
+    };
+    byte bank, *code;
+    byte oldHigh;
+
+    b5GetLogicEntry(&savedEntry, 250);
+    b5GetLogicFile(&savedFile, 250);
+    code = b10BankedAlloc(sizeof(script), &bank);
+    auditCheck(code != NULL, "FALSE IF GOTO SCRIPT ALLOCATION FAILED");
+    memCpyBanked(code, script, bank, sizeof(script));
+
+    memset(&entry, 0, sizeof(entry));
+    memset(&file, 0, sizeof(file));
+    entry.loaded = TRUE;
+    entry.data = &logicFiles[250];
+    file.logicCode = code;
+    file.codeBank = bank;
+    file.codeSize = sizeof(script);
+    b5SetLogicEntry(&entry, 250);
+    b5SetLogicFile(&file, 250);
+
+    flag[2] = FALSE;
+    var[250] = var[251] = 0;
+    oldHigh = *(volatile byte*)0xf2;
+    *(volatile byte*)0xf2 = 1;
+    executeLogic(&logics[250], 250);
+    *(volatile byte*)0xf2 = oldHigh;
+
+    auditCheck(var[250] == 0, "FALSE IF GOTO EXECUTED ITS SKIPPED COMMAND");
+    auditCheck(var[251] == 1,
+        "FALSE IF GOTO USED A STALE HIGH BYTE IN ITS DISPLACEMENT");
+    b5SetLogicEntry(&savedEntry, 250);
+    b5SetLogicFile(&savedFile, 250);
+    auditCheck(b10BankedDealloc(code, bank), "FALSE IF GOTO SCRIPT LEAKED BYTECODE BUFFER");
+}
+
 void scriptstreamAuditCases(void)
 {
+    runFalseIfGotoIgnoresStaleHighByte();
     runFalseIfSaidSkip(1);
     runFalseIfSaidSkip(128);
     runFalseIfSaidSkip(255);
