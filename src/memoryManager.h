@@ -193,5 +193,8 @@ byte* b10TryBankedAlloc(int size, byte* bank);
 boolean b10BankedDealloc(byte* ptr, byte bank);
 #pragma wrapped-call (pop)
 
-#endif
+#pragma wrapped-call (push, trampoline, 0x0d)
+boolean b10IsBankedAllocation(byte* ptr, byte bank, unsigned int size);
+#pragma wrapped-call (pop)
 
+#endif

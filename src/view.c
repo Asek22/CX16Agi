@@ -2407,6 +2407,20 @@ extern boolean setViewDataCore(byte viewNum, AGIFile* tempAGI, View* localView, 
 extern boolean setLoopDataCore(AGIFile* tempAGI, View* localView, Loop* localLoop, byte* loopHeaderData, byte viewNum, byte loopNum, boolean strict);
 extern void releaseUnpublishedView(View* localView);
 #pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, 0x01)
+static boolean validateViewRle(AGIFile* tempAGI);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, 0x0c)
+static boolean markViewRleLoopHeader(byte* map, byte mapBank, unsigned int start,
+	unsigned int end);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, 0x0c)
+static boolean markViewRleCelHeader(byte* map, byte mapBank, unsigned int start);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, VIEW_CODE_BANK_4)
+static boolean validateCelRows(AGIFile* tempAGI, unsigned int start, unsigned int end,
+	byte width, byte height);
+#pragma wrapped-call (pop)
 
 #pragma code-name (push, "BANKRAM0A")
 boolean setViewDataCore(byte viewNum, AGIFile* tempAGI, View* localView, boolean strict)
@@ -2585,6 +2599,284 @@ void releaseUnpublishedView(View* localView)
 }
 #pragma code-name (pop)
 
+#pragma code-name (push, "BANKRAM0C")
+static boolean validateCelRows(AGIFile* tempAGI, unsigned int start, unsigned int end,
+	byte width, byte height)
+{
+	byte buffer[64], row, value, runLength;
+	unsigned int copied = 0, available = 0, cursor = 0, amount, remaining, rowWidth;
+
+	if (end <= start) return FALSE;
+	remaining = end - start;
+	for (row = 0; row < height; ++row)
+	{
+		rowWidth = 0;
+		while (TRUE)
+		{
+			if (cursor == available)
+			{
+				if (copied >= remaining) return FALSE;
+				amount = remaining - copied;
+				if (amount > sizeof(buffer)) amount = sizeof(buffer);
+				memCpyBanked(buffer, tempAGI->code + start + copied, tempAGI->codeBank, amount);
+				copied += amount;
+				available = amount;
+				cursor = 0;
+			}
+
+			value = buffer[cursor++];
+			if (!value) break;
+			runLength = value & 0x0f;
+			if (!runLength || runLength > width - rowWidth) return FALSE;
+			rowWidth += runLength;
+		}
+	}
+	return TRUE;
+}
+#pragma code-name (pop)
+
+#pragma code-name (push, "BANKRAM01")
+static byte viewRleStructureAt(byte* map, byte mapBank, unsigned int offset)
+{
+	byte shift = (offset & 3) << 1, value;
+	memCpyBanked(&value, map + (offset >> 2), mapBank, 1);
+	return (value >> shift) & 3;
+}
+
+#pragma code-name (push, "BANKRAM0C")
+static boolean markViewRleLoopHeader(byte* map, byte mapBank, unsigned int start,
+	unsigned int end)
+{
+	byte buffer[64], amount, shift, status;
+	unsigned int i;
+	unsigned int mapOffset = start >> 2, firstResourceOffset, currentEnd;
+	while (mapOffset < (end + 3) / 4)
+	{
+		amount = (end + 3) / 4 - mapOffset;
+		if (amount > sizeof(buffer)) amount = sizeof(buffer);
+		memCpyBanked(buffer, map + mapOffset, mapBank, amount);
+		firstResourceOffset = mapOffset * 4;
+		currentEnd = (mapOffset + amount) * 4;
+		for (i = 0; i < (unsigned int)amount * 4; ++i)
+		{
+			unsigned int offset = firstResourceOffset + i;
+			if (offset < start || offset >= end) continue;
+			shift = (offset & 3) << 1;
+			status = (buffer[i >> 2] >> shift) & 3;
+			if (status) return FALSE;
+			buffer[i >> 2] |= (offset == start ? 1 : 2) << shift;
+		}
+		memCpyBanked(map + mapOffset, buffer, mapBank, amount);
+		mapOffset = currentEnd >> 2;
+	}
+	return TRUE;
+}
+#pragma code-name (pop)
+
+#pragma code-name (push, "BANKRAM0C")
+static boolean markViewRleCelHeader(byte* map, byte mapBank, unsigned int start)
+{
+	byte bytes[2], count, i, shift, status;
+	unsigned int mapOffset = start >> 2;
+	count = ((start & 3) + CEL_HEADER_SIZE + 3) / 4;
+	memCpyBanked(bytes, map + mapOffset, mapBank, count);
+	status = (bytes[0] >> ((start & 3) << 1)) & 3;
+	if (status == 3)
+	{
+		for (i = 1; i < CEL_HEADER_SIZE; ++i)
+		{
+			unsigned int position = (start & 3) + i;
+			if (((bytes[position >> 2] >> ((position & 3) << 1)) & 3) != 2) return FALSE;
+		}
+		return TRUE;
+	}
+	if (status) return FALSE;
+	for (i = 0; i < CEL_HEADER_SIZE; ++i)
+	{
+		unsigned int position = (start & 3) + i;
+		shift = (position & 3) << 1;
+		status = (bytes[position >> 2] >> shift) & 3;
+		if (status) return FALSE;
+		bytes[position >> 2] |= (i ? 2 : 3) << shift;
+	}
+	memCpyBanked(map + mapOffset, bytes, mapBank, count);
+	return TRUE;
+}
+#pragma code-name (pop)
+
+static boolean validateViewRle(AGIFile* tempAGI)
+{
+	unsigned int resourceSize, viewHeaderSize, headerSize, loopOffset, loopEnd;
+	unsigned int cellOffset, cellStart, payloadEnd;
+	unsigned int descriptionOffset, descriptionEnd, i, j, copySize, copyOffset, mapOffset;
+	byte cellOffsetBytes[2], celHeader[CEL_HEADER_SIZE], descriptionBuffer[64], structureBuffer[64];
+	byte numberOfLoops, numberOfCels, loopNum, celNum, character;
+	byte pendingCel, pendingWidth, pendingHeight;
+	boolean valid = FALSE;
+	unsigned int mapBytes;
+	byte* structureMap;
+	byte structureMapBank;
+	unsigned int pendingPayloadStart;
+	unsigned long resourceEnd;
+
+	resourceSize = tempAGI->totalSize ? tempAGI->totalSize : tempAGI->codeSize;
+	resourceEnd = (unsigned long)(unsigned int)tempAGI->code + resourceSize;
+	if (!tempAGI->code || !resourceSize || resourceSize > MEMORY_MANAGER_BANK_SIZE ||
+		(unsigned int)tempAGI->code < BANK_MIN ||
+		resourceEnd > (unsigned long)BANK_MIN + MEMORY_MANAGER_BANK_SIZE ||
+		tempAGI->codeBank < TINY_FIRST_BANK ||
+		tempAGI->codeBank >= LARGE_FIRST_BANK + LARGE_NO_BANKS ||
+		!b10IsBankedAllocation(tempAGI->code, tempAGI->codeBank, resourceSize))
+		return FALSE;
+	if (resourceSize < POSITION_OF_LOOPS_OFFSET + 2) return FALSE;
+	memCpyBankedBetween(viewHeaderBuffer, VIEW_BUFFERS_BANK, tempAGI->code, tempAGI->codeBank,
+	POSITION_OF_LOOPS_OFFSET);
+	memCpyBanked(&numberOfLoops, viewHeaderBuffer + POSITION_OF_NO_LOOPS, VIEW_BUFFERS_BANK, 1);
+	viewHeaderSize = POSITION_OF_LOOPS_OFFSET + (unsigned int)numberOfLoops * 2;
+	if (!numberOfLoops || viewHeaderSize > resourceSize) return FALSE;
+	memCpyBankedBetween(viewHeaderBuffer, VIEW_BUFFERS_BANK, tempAGI->code, tempAGI->codeBank,
+		viewHeaderSize);
+	memCpyBanked((byte*)&descriptionOffset, viewHeaderBuffer + POSITION_OF_DESCRIPTION,
+		VIEW_BUFFERS_BANK, 2);
+	descriptionEnd = 0;
+	if (descriptionOffset)
+	{
+		if (descriptionOffset < viewHeaderSize || descriptionOffset >= resourceSize) return FALSE;
+		copyOffset = descriptionOffset;
+		while (copyOffset < resourceSize)
+		{
+			copySize = resourceSize - copyOffset;
+			if (copySize > sizeof(descriptionBuffer)) copySize = sizeof(descriptionBuffer);
+			memCpyBanked(descriptionBuffer, tempAGI->code + copyOffset,
+				tempAGI->codeBank, copySize);
+			for (j = 0; j < copySize; ++j)
+			{
+				if (!descriptionBuffer[j])
+				{
+					descriptionEnd = copyOffset + j + 1;
+					break;
+				}
+			}
+			if (descriptionEnd) break;
+			copyOffset += copySize;
+		}
+		if (!descriptionEnd) return FALSE;
+	}
+
+	/* Two bits per resource byte distinguish loop and cel header starts. */
+	mapBytes = (resourceSize + 3) / 4;
+	structureMap = b10TryBankedAlloc(mapBytes, &structureMapBank);
+	if (!structureMap) return FALSE;
+	memsetBanked(structureMap, 0, mapBytes, structureMapBank);
+	#define REJECT_VIEW_RLE() goto rejectViewRle
+	for (loopNum = 0; loopNum < numberOfLoops; ++loopNum)
+	{
+		memCpyBanked((byte*)&loopOffset,
+			viewHeaderBuffer + POSITION_OF_LOOPS_OFFSET + loopNum * 2, VIEW_BUFFERS_BANK, 2);
+		if (loopOffset < viewHeaderSize || loopOffset >= resourceSize) REJECT_VIEW_RLE();
+		character = viewRleStructureAt(structureMap, structureMapBank, loopOffset);
+		if (character == 1) continue;
+		if (character) REJECT_VIEW_RLE();
+
+		memCpyBanked(&numberOfCels, tempAGI->code + loopOffset, tempAGI->codeBank, 1);
+		headerSize = POSITION_OF_CELS_OFFSET + (unsigned int)numberOfCels * 2;
+		if (!numberOfCels || headerSize > resourceSize - loopOffset) REJECT_VIEW_RLE();
+		loopEnd = loopOffset + headerSize;
+		if (descriptionOffset && loopOffset < descriptionEnd &&
+			descriptionOffset < loopEnd) REJECT_VIEW_RLE();
+		if (!markViewRleLoopHeader(structureMap, structureMapBank, loopOffset, loopEnd))
+			REJECT_VIEW_RLE();
+
+		for (celNum = 0; celNum < numberOfCels; ++celNum)
+		{
+			memCpyBanked(cellOffsetBytes, tempAGI->code + loopOffset +
+				POSITION_OF_CELS_OFFSET + celNum * 2, tempAGI->codeBank, 2);
+			cellOffset = cellOffsetBytes[0] + (unsigned int)cellOffsetBytes[1] * 256;
+			if (cellOffset < headerSize || cellOffset > resourceSize - loopOffset) REJECT_VIEW_RLE();
+			cellStart = loopOffset + cellOffset;
+			if (CEL_HEADER_SIZE > resourceSize - cellStart) REJECT_VIEW_RLE();
+			if (descriptionOffset && cellStart < descriptionEnd &&
+				descriptionOffset < cellStart + CEL_HEADER_SIZE) REJECT_VIEW_RLE();
+			memCpyBanked(celHeader, tempAGI->code + cellStart, tempAGI->codeBank, CEL_HEADER_SIZE);
+			if (!celHeader[POSITION_OF_CEL_WIDTH] || !celHeader[POSITION_OF_CEL_HEIGHT]) REJECT_VIEW_RLE();
+			if (!markViewRleCelHeader(structureMap, structureMapBank, cellStart))
+				REJECT_VIEW_RLE();
+		}
+	}
+
+	pendingCel = FALSE;
+	i = 0;
+	mapOffset = 0;
+	while (i < resourceSize)
+	{
+		mapBytes = (resourceSize - i + 3) / 4;
+		if (mapBytes > sizeof(structureBuffer)) mapBytes = sizeof(structureBuffer);
+		memCpyBanked(structureBuffer, structureMap + mapOffset, structureMapBank, mapBytes);
+		for (j = 0; j < (unsigned int)mapBytes * 4 && i < resourceSize; ++j, ++i)
+		{
+			character = (structureBuffer[j >> 2] >> ((j & 3) << 1)) & 3;
+			if (character != 1 && character != 3) continue;
+			if (pendingCel)
+			{
+				payloadEnd = i;
+				if (descriptionOffset)
+				{
+					if (descriptionOffset < pendingPayloadStart)
+					{
+						if (descriptionEnd > pendingPayloadStart) REJECT_VIEW_RLE();
+					}
+					else if (descriptionOffset < payloadEnd)
+						payloadEnd = descriptionOffset;
+				}
+				if (!validateCelRows(tempAGI, pendingPayloadStart, payloadEnd,
+					pendingWidth, pendingHeight)) REJECT_VIEW_RLE();
+				pendingCel = FALSE;
+			}
+			if (character == 3)
+			{
+				memCpyBanked(celHeader, tempAGI->code + i, tempAGI->codeBank, CEL_HEADER_SIZE);
+				pendingPayloadStart = i + CEL_HEADER_SIZE;
+				pendingWidth = celHeader[POSITION_OF_CEL_WIDTH];
+				pendingHeight = celHeader[POSITION_OF_CEL_HEIGHT];
+				pendingCel = TRUE;
+			}
+		}
+		mapOffset += mapBytes;
+	}
+	if (pendingCel)
+	{
+		payloadEnd = resourceSize;
+		if (descriptionOffset)
+		{
+			if (descriptionOffset < pendingPayloadStart)
+			{
+				if (descriptionEnd > pendingPayloadStart) REJECT_VIEW_RLE();
+			}
+			else if (descriptionOffset < payloadEnd)
+				payloadEnd = descriptionOffset;
+		}
+		if (!validateCelRows(tempAGI, pendingPayloadStart, payloadEnd,
+			pendingWidth, pendingHeight)) REJECT_VIEW_RLE();
+	}
+	valid = TRUE;
+rejectViewRle:
+	b10BankedDealloc(structureMap, structureMapBank);
+#undef REJECT_VIEW_RLE
+	return valid;
+}
+#ifdef INVENTORY_TEST_VIEW_RLE
+#pragma code-name (push, "BANKRAM0F")
+boolean b9ValidateViewRleForInventoryTest(AGIFile* tempAGI)
+{
+	#pragma wrapped-call (push, trampoline, 0x01)
+	boolean valid = validateViewRle(tempAGI);
+	#pragma wrapped-call (pop)
+	return valid;
+}
+#pragma code-name (pop)
+#endif
+#pragma code-name (pop)
+
 boolean b9TryLoadViewFile(byte viewNum)
 {
 	AGIFile tempAGI;
@@ -2609,6 +2901,14 @@ boolean b9TryLoadViewFile(byte viewNum)
 
 	b10GetLogicDirectory(&agiFilePosType, &viewdir[viewNum]);
 	if (!b6TryLoadAGIFile(VIEW, &agiFilePosType, &tempAGI)) return FALSE;
+	#pragma wrapped-call (push, trampoline, 0x01)
+	viewLoadFailed = !validateViewRle(&tempAGI);
+	#pragma wrapped-call (pop)
+	if (viewLoadFailed)
+	{
+		b10BankedDealloc(tempAGI.code, tempAGI.codeBank);
+		return FALSE;
+	}
 
 #ifdef VERBOSE_LOAD_VIEWS
 		printf("loaded agiFile of total size %u\n", tempAGI.totalSize);

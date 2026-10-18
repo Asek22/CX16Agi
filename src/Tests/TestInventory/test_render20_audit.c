@@ -219,7 +219,7 @@ static void paletteCases(void)
 #pragma rodata-name (push, "BANKRAM01")
 static void addToPicTopClipCase(void)
 {
-    static const byte resource[] = {0x12,0x34,0,17,0, 0,0,1,0,0,7,0, 1,3,0, 1,2,15,0x12,0,0x22,0};
+    static const byte resource[] = {0x12,0x34,0,17,0, 0,0,1,0,0,7,0, 1,3,0, 2,2,15,0x12,0,0x22,0};
     AGIFilePosType position, oldPosition;
     FILE* output;
     unsigned long address;

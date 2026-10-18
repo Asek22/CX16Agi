@@ -1,4 +1,5 @@
 #include "memoryManager.h"
+#include "helpers.h"
 MemoryArea* _memoryAreas;
 int _noSegments;
 //#define VERBOSE
@@ -271,6 +272,39 @@ boolean b10BankedDealloc(byte* ptr, byte bank)
 }
 
 #pragma code-name (pop);
+
+#pragma code-name (push, "BANKRAM0D")
+boolean b10IsBankedAllocation(byte* ptr, byte bank, unsigned int size)
+{
+	int i;
+	byte allocated;
+	unsigned int offset, segment, segmentsPerBank;
+	MemoryArea memoryArea;
+
+	if (!ptr || !size || (unsigned int)ptr < BANK_MIN ||
+		(unsigned int)ptr >= BANK_MIN + MEMORY_MANAGER_BANK_SIZE) return FALSE;
+	offset = (unsigned int)ptr - BANK_MIN;
+	if (offset + size > MEMORY_MANAGER_BANK_SIZE) return FALSE;
+	for (i = 0; i < NO_SIZES; ++i)
+	{
+		memCpyBanked((byte*)&memoryArea, (byte*)&_memoryAreas[i],
+			MEMORY_MANAGEMENT_BANK, sizeof(memoryArea));
+		if (bank >= memoryArea.firstBank &&
+			bank - memoryArea.firstBank < memoryArea.noBanks) break;
+	}
+	if (i == NO_SIZES || size > memoryArea.segmentSize ||
+		offset % memoryArea.segmentSize) return FALSE;
+	segmentsPerBank = memoryArea.noSegments / memoryArea.noBanks;
+	if (!segmentsPerBank) return FALSE;
+	segment = offset / memoryArea.segmentSize +
+		(bank - memoryArea.firstBank) * segmentsPerBank;
+	if (segment >= memoryArea.noSegments ||
+		bank != memoryArea.firstBank + segment / segmentsPerBank) return FALSE;
+	memCpyBanked(&allocated, memoryArea.start + segment, MEMORY_MANAGEMENT_BANK, 1);
+	return allocated != FALSE;
+}
+#pragma code-name (pop)
+
 #pragma code-name (push, "RAMINIT")
 void bInitMemoryMangerInit()
 {
@@ -286,7 +320,3 @@ void bInitMemoryMangerInit()
 	RAM_BANK = previousRamBank;
 }
 #pragma code-name (pop);
-
-
-
-
