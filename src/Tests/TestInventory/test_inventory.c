@@ -1,6 +1,7 @@
 #include "../../commands.h"
 #include "../../object.h"
 #include "../../inventory.h"
+#include "../../memoryManager.h"
 #include "../../spriteAllocator.h"
 #include <cx16.h>
 #include <string.h>
@@ -15,6 +16,7 @@ extern byte bDObjData[];
 extern void testExit(void);
 extern void testPutKey(byte key);
 extern void testObserveIrq(void);
+extern void testResetVsyncMetrics(void);
 extern void __fastcall__ testFeedKeys(const byte* keys);
 extern unsigned testVisibleFrames;
 extern unsigned testDetailVisibleFrames;
@@ -43,6 +45,9 @@ void auditCheck(byte ok, const char* message) { check(ok, message); }
 void auditOutput(const char* text) { output(text); }
 extern void soundAuditCases(void), metadataAuditCases(void), allocatorAuditCases(void);
 extern void inputAuditCases(void), viewsAuditCases(void), showObjAuditCases(void);
+#pragma wrapped-call (push, trampoline, 0x08)
+extern void viewaliasesAuditCases(void);
+#pragma wrapped-call (pop)
 extern void resource20AuditCases(void), render20AuditCases(void);
 #pragma wrapped-call (push, trampoline, 1)
 extern void auditIrq20(void);
@@ -66,6 +71,379 @@ extern void graphicsapiAuditCases(void);
 #pragma wrapped-call (push, trampoline, CONTROLLER_BANK)
 extern void backbufferAuditCases(void);
 #pragma wrapped-call (pop)
+static void makeObjects(void);
+static unsigned long cycles(void);
+static void checkVsyncChain(void);
+#if defined(AUDIT_CASE_fullframe) || defined(AUDIT_CASE_integration)
+#include "../../agifiles.h"
+#include "../../controllers.h"
+#include "../../logic.h"
+#include "../../menu.h"
+#include "../../paletteManager.h"
+#include "../../parser.h"
+#include "../../random.h"
+#include "../../sound.h"
+#include "../../timer.h"
+#include "../../view.h"
+#include "../../words.h"
+#pragma wrapped-call (push, trampoline, MEKA_BANK)
+extern void b6InitLogics(void), b6InitInterpreter(void), b6InitRandom(void);
+extern void b6InitTimer(timer_proc timerProc), b6Timing_proc(void);
+#pragma wrapped-call (pop)
+extern byte horizon;
+#pragma wrapped-call (push, trampoline, MENU_BANK)
+extern void bAInitMenus(void);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, VIEW_CODE_BANK_1)
+extern void b9LoadViewFile(byte viewNum);
+extern void b9SetView(byte viewNum, byte entryNum);
+extern void b9SetLoop(ViewTable* table, byte entryNum, byte loopNum);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, SOUND_BANK)
+extern void bBLoadSoundFile(int soundNum);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, 0x02)
+extern void writeRuntimeBytes(FILE* file, const byte* bytes, unsigned int length,
+    const char* message);
+extern void writeRuntimeDirectory(const char* name, const unsigned long* offsets,
+    byte count);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, 0x01)
+extern void fullframeAuditCases(void);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, 1)
+extern void integrationAuditCases(void);
+extern void integrationAuditPrepare(void);
+#pragma wrapped-call (pop)
+
+#pragma bss-name (push, "BSS")
+static byte runtimeSoundCode[39];
+static unsigned long runtimeLogicOffset[1], runtimePictureOffset[21];
+static unsigned long runtimeViewOffset[1], runtimeSoundOffset[2];
+static byte runtimeResourceHeader[5];
+#pragma bss-name (pop)
+static const byte runtimeViewCode[] = {
+	0,0,3,0,0,11,0,25,0,47,0,
+    1,3,0, 4,4,0,
+    0x14,0, 0x14,0, 0x14,0, 0x14,0,
+    1,3,0, 4,4,0x80,
+	0x11,0x12,0x31,0, 0x11,0x12,0x31,0,
+	0x11,0x12,0x31,0, 0x11,0x12,0x31,0,
+    1,3,0, 36,8,0,
+    0x3f,0x3f,0x36,0, 0x3f,0x3f,0x36,0,
+    0x3f,0x3f,0x36,0, 0x3f,0x3f,0x36,0,
+    0x3f,0x3f,0x36,0, 0x3f,0x3f,0x36,0,
+    0x3f,0x3f,0x36,0, 0x3f,0x3f,0x36,0
+};
+
+#pragma code-name (push, "BANKRAM02")
+static void writeRuntimeBytesLocal(FILE* file, const byte* bytes, unsigned int length,
+    const char* message)
+{
+    check(file && fwrite(bytes, 1, length, file) == length, message);
+}
+
+void writeRuntimeBytes(FILE* file, const byte* bytes, unsigned int length,
+    const char* message)
+{
+    writeRuntimeBytesLocal(file, bytes, length, message);
+}
+
+void writeRuntimeDirectory(const char* name, const unsigned long* offsets,
+    byte count)
+{
+    FILE* file = fopen(name, "wb");
+    byte i, entry[3];
+    check(file != NULL, "runtime directory fixture creation");
+    for (i = 0; i < count; ++i) {
+        entry[0] = offsets[i] == EMPTY ? 0x0f : (byte)(offsets[i] >> 16) & 0x0f;
+        entry[1] = offsets[i] == EMPTY ? 0xff : (byte)(offsets[i] >> 8);
+        entry[2] = offsets[i] == EMPTY ? 0xff : (byte)offsets[i];
+        writeRuntimeBytesLocal(file, entry, sizeof(entry), "runtime directory fixture write");
+    }
+    fclose(file);
+}
+#pragma code-name (pop)
+
+#pragma code-name (push, "BANKRAM0F")
+extern byte inventoryBuffer[];
+
+static void writeRuntimeFixtureBytes(FILE* file, const byte* bytes,
+    unsigned int length, const char* message)
+{
+	unsigned int offset = 0, amount;
+	while (offset < length) {
+		amount = length - offset;
+		if (amount > 80) amount = 80;
+		memcpy(inventoryBuffer, bytes + offset, amount);
+		writeRuntimeBytes(file, inventoryBuffer, amount, message);
+		offset += amount;
+	}
+}
+
+void auditRuntimeFixture(void)
+{
+#if defined(AUDIT_CASE_integration)
+    static const byte runtimeLogic[] = {
+        0xff, 0xfd, 7, 5, 0xff, 2, 0, 19, 250,
+        4, 251, 250, 24, 250, 25, 250, 26,
+        41, 1, 0, 43, 1, 0, 33, 1, 54, 1, 15, 67, 1, 35, 1, 37, 1, 140, 150,
+        41, 2, 0, 43, 2, 1, 33, 2, 54, 2, 15, 67, 2, 35, 2, 37, 2, 38, 98,
+        41, 3, 0, 43, 3, 2, 33, 3, 54, 3, 15, 67, 3, 35, 3, 37, 3, 80, 106,
+        41, 4, 0, 43, 4, 0, 33, 4, 54, 4, 15, 67, 4, 35, 4, 37, 4, 120, 114, 0
+    };
+#elif defined(AUDIT_CASE_fullframe)
+	static const byte runtimeLogic[] = {
+		3, 251, 77,
+		41, 1, 0, 43, 1, 0, 37, 1, 10, 90, 33, 1, 35, 1,
+		41, 2, 0, 43, 2, 1, 37, 2, 42, 98, 33, 2, 35, 2,
+		41, 3, 0, 43, 3, 2, 37, 3, 80, 106, 33, 3, 35, 3,
+		41, 4, 0, 43, 4, 0, 37, 4, 120, 114, 33, 4, 35, 4, 0
+	};
+#else
+	static const byte runtimeLogic[] = {
+		0xff, 0xfd, 2, 0, 250, 0xff, 2, 0,
+		19, 250, 4, 251, 0, 24, 0, 25, 0, 26, 0, 0
+	};
+#endif
+	static byte pictureCode[] = {0xf0, 5, 0xf6, 10, 80, 20, 80, 0xff};
+    static const byte logicTrailer[] = {0, 0, 0};
+    static const byte runtimeObjects[] = {
+        9, 0, 0,
+        9, 0, 255, 16, 0, 255, 23, 0, 255,
+        'd', 'a', 'g', 'g', 'e', 'r', 0,
+        'c', 'a', 'r', 'r', 'o', 't', 0,
+        'b', 'u', 'c', 'k', 'e', 't', 0
+    };
+    static const byte emptyWords[] = {0, 2};
+    FILE* volume;
+    unsigned long position = 0;
+	unsigned int viewLength, channel, i;
+#if defined(AUDIT_CASE_integration)
+	LOGICFile loadedLogic;
+#endif
+
+    check(RAM_BANK == 0x0f, "runtime fixture did not enter in its assigned bank");
+	asm("php");
+	asm("sei");
+	bFInitPaletteManager();
+	asm("plp");
+    volume = fopen("vol.0", "wb");
+    check(volume != NULL, "runtime VOL fixture creation");
+    runtimeLogicOffset[0] = position;
+    runtimeResourceHeader[0] = 0x12; runtimeResourceHeader[1] = 0x34; runtimeResourceHeader[2] = 0;
+    runtimeResourceHeader[3] = sizeof(runtimeLogic) + sizeof(logicTrailer) + 2;
+    runtimeResourceHeader[4] = 0;
+    writeRuntimeFixtureBytes(volume, runtimeResourceHeader, sizeof(runtimeResourceHeader), "logic.0 fixture header write");
+    runtimeResourceHeader[0] = sizeof(runtimeLogic); runtimeResourceHeader[1] = 0;
+    writeRuntimeFixtureBytes(volume, runtimeResourceHeader, 2, "logic.0 code-size write");
+    writeRuntimeFixtureBytes(volume, runtimeLogic, sizeof(runtimeLogic), "logic.0 fixture write");
+    writeRuntimeFixtureBytes(volume, logicTrailer, sizeof(logicTrailer), "logic.0 message trailer write");
+    position += sizeof(runtimeResourceHeader) + 2 + sizeof(runtimeLogic) + sizeof(logicTrailer);
+	for (i = 0; i <= 20; ++i) {
+		runtimePictureOffset[i] = position;
+		pictureCode[1] = i ? (byte)(i % 15 + 1) : 5;
+		runtimeResourceHeader[0] = 0x12; runtimeResourceHeader[1] = 0x34; runtimeResourceHeader[2] = 0;
+		runtimeResourceHeader[3] = sizeof(pictureCode); runtimeResourceHeader[4] = 0;
+		writeRuntimeFixtureBytes(volume, runtimeResourceHeader, sizeof(runtimeResourceHeader), "room picture fixture header write");
+		writeRuntimeFixtureBytes(volume, pictureCode, sizeof(pictureCode), "room picture fixture write");
+		position += sizeof(runtimeResourceHeader) + sizeof(pictureCode);
+	}
+
+    viewLength = sizeof(runtimeViewCode);
+    runtimeViewOffset[0] = position;
+    runtimeResourceHeader[0] = 0x12; runtimeResourceHeader[1] = 0x34; runtimeResourceHeader[2] = 0;
+    runtimeResourceHeader[3] = (byte)viewLength; runtimeResourceHeader[4] = (byte)(viewLength >> 8);
+    writeRuntimeFixtureBytes(volume, runtimeResourceHeader, sizeof(runtimeResourceHeader), "VIEW fixture header write");
+    writeRuntimeFixtureBytes(volume, runtimeViewCode, viewLength, "VIEW fixture write");
+    position += sizeof(runtimeResourceHeader) + viewLength;
+
+    memset(runtimeSoundCode, 0xff, sizeof(runtimeSoundCode));
+    for (channel = 0; channel < 4; ++channel) {
+        unsigned int offset = 8 + channel * 8;
+        runtimeSoundCode[channel * 2] = (byte)offset;
+        runtimeSoundCode[channel * 2 + 1] = 0;
+        runtimeSoundCode[offset] = 0x50; runtimeSoundCode[offset + 1] = 0xc3;
+        runtimeSoundCode[offset + 2] = (byte)(0x30 + channel); runtimeSoundCode[offset + 3] = 5;
+        runtimeSoundCode[offset + 4] = 0;
+        runtimeSoundCode[offset + 5] = 0xff; runtimeSoundCode[offset + 6] = 0xff;
+    }
+    for (i = 0; i < 2; ++i) {
+        runtimeSoundOffset[i] = position;
+        runtimeResourceHeader[0] = 0x12; runtimeResourceHeader[1] = 0x34; runtimeResourceHeader[2] = 0;
+        runtimeResourceHeader[3] = sizeof(runtimeSoundCode); runtimeResourceHeader[4] = 0;
+        writeRuntimeFixtureBytes(volume, runtimeResourceHeader, sizeof(runtimeResourceHeader), "SOUND fixture header write");
+        runtimeSoundCode[8] = (byte)(0x50 + i); /* Distinct notes, each longer than the measured sequence. */
+        writeRuntimeFixtureBytes(volume, runtimeSoundCode, sizeof(runtimeSoundCode), "SOUND fixture write");
+        position += sizeof(runtimeResourceHeader) + sizeof(runtimeSoundCode);
+    }
+    fclose(volume);
+
+    writeRuntimeDirectory("logdir", runtimeLogicOffset, 1);
+	writeRuntimeDirectory("picdir", runtimePictureOffset, 21);
+    writeRuntimeDirectory("viewdir", runtimeViewOffset, 1);
+    writeRuntimeDirectory("snddir", runtimeSoundOffset, 2);
+    volume = fopen("object", "wb");
+    writeRuntimeFixtureBytes(volume, runtimeObjects, sizeof(runtimeObjects), "OBJECT fixture write");
+    fclose(volume);
+    volume = fopen("words.tok", "wb");
+    writeRuntimeFixtureBytes(volume, emptyWords, sizeof(emptyWords), "WORDS fixture write");
+    fclose(volume);
+    b6InitTimer(b6Timing_proc);
+    b6InitFiles();
+    bAInitViews();
+    bAResetSpriteMemory(TRUE);
+    b9LoadViewFile(0);
+
+    check(RAM_BANK == 0x0f, "runtime VIEW load changed its caller RAM bank");
+    b6InitRandom();
+    bAInitMenus();
+    memset(var, 0, 255);
+    memset(flag, FALSE, 255);
+    flag[5] = TRUE;
+    flag[13] = TRUE;
+    var[24] = 0x29;
+    var[22] = 3;
+    var[26] = 3;
+    var[8] = 255;
+    var[10] = 2;
+    b6InitLogics();
+	#if defined(AUDIT_CASE_integration)
+	b5GetLogicFile(&loadedLogic, 0);
+	check(loadedLogic.codeSize == sizeof(runtimeLogic) && loadedLogic.logicCode,
+		"generated runtime LOGIC header did not load its complete bytecode");
+	memCpyBanked(inventoryBuffer, loadedLogic.logicCode, loadedLogic.codeBank,
+		sizeof(runtimeLogic));
+	check(!memcmp(inventoryBuffer, runtimeLogic, sizeof(runtimeLogic)),
+		"generated runtime LOGIC bytes changed during production loading");
+	#endif
+    bBInitSound();
+    bAInitObjects();
+    bDLoadObjectFile();
+    b12LoadWords();
+    b7InitEvents();
+    b6InitInterpreter();
+	*(volatile byte*)0x9f26 = 1;
+	testResetVsyncMetrics();
+    checkVsyncChain();
+	check(RAM_BANK == 0x0f && !(testStatus() & 4),
+		"runtime graphics setup lost its caller bank or enabled IRQ state");
+    bDInitSpriteMemoryManager();
+    horizon = 36;
+    b1InitControllers();
+    bBLoadSoundFile(0);
+	check(RAM_BANK == 0x0f, "runtime first SOUND load changed its caller RAM bank");
+    bBLoadSoundFile(1);
+	check(RAM_BANK == 0x0f, "runtime second SOUND load changed its caller RAM bank");
+    flag[9] = TRUE;
+}
+#pragma code-name (pop)
+
+#pragma code-name (push, "BANKRAM07")
+void auditRuntimeCheckRoomPixels(byte room)
+{
+	byte color = room ? (byte)(room % 15 + 1) : 5;
+	byte expected = (byte)(color << 4 | color);
+	check(testPeek(b8GetVeraPictureAddress(10, 80)) == expected &&
+		testPeek(b8GetVeraPictureAddress(20, 80)) == expected,
+        "logic-driven room picture line pixels missing");
+}
+#pragma code-name (pop)
+
+/* Read one address through its owning bank before inspecting the published sprite. */
+#pragma code-name (push, "CODE")
+static unsigned long runtimeExpectedSpriteAddress(byte entry)
+{
+	ViewTable table;
+	View view;
+	ViewTableMetadata metadata;
+	VeraSpriteAddress address;
+	unsigned long addressOffset;
+	byte metadataEntry;
+
+	getViewTab(&table, entry);
+	metadataEntry = table.entryNum;
+	memCpyBanked((byte*)&metadata, (byte*)&viewTableMetadata[metadataEntry],
+		SPRITE_METADATA_BANK, sizeof(metadata));
+	getLoadedView(&view, table.currentView);
+	addressOffset = ((unsigned long)table.currentLoop * view.maxCels +
+		table.currentCel) * view.maxVeraSlots * sizeof(address);
+	memCpyBanked((byte*)&address,
+		(byte*)metadata.veraAddresses + addressOffset,
+		metadata.viewTableMetadataBank, sizeof(address));
+	return address;
+}
+#pragma code-name (pop)
+
+#pragma code-name (push, "BANKRAM07")
+static unsigned long runtimeSpriteAddressAtX(word x, byte* spriteFlags,
+	byte* addressLow, byte* addressHigh)
+{
+	unsigned int slot, address;
+	unsigned long attributes;
+	for (slot = 0; slot < 128; ++slot) {
+		attributes = SPRITE_ATTRIBUTES_START + (unsigned long)slot * 8;
+		if (!(testPeek(attributes + 6) & 12) ||
+			(testPeek(attributes + 2) | (word)testPeek(attributes + 3) << 8) != x) continue;
+		if (spriteFlags) *spriteFlags = testPeek(attributes + 6);
+		address = testPeek(attributes) | (word)testPeek(attributes + 1) << 8;
+		if (addressLow) *addressLow = (byte)address;
+		if (addressHigh) *addressHigh = (byte)(address >> 8);
+		return (unsigned long)(address & 0x0fff) << 5;
+	}
+	return 0;
+}
+
+static byte runtimeSpritePixel(unsigned long address, byte x)
+{
+	byte packed = testPeek(address + (x >> 1));
+	return (x & 1) ? packed & 15 : packed >> 4;
+}
+
+void auditRuntimeCheckSpritePixels(void)
+{
+	ViewTable splitTable;
+	byte mirrorFlags = 0;
+	byte mirrorAddressLow = 0, mirrorAddressHigh = 0;
+	unsigned long mirrored = runtimeSpriteAddressAtX(76, &mirrorFlags,
+		&mirrorAddressLow, &mirrorAddressHigh);
+	unsigned long splitFirst, splitSecond;
+	unsigned long expectedAddress = runtimeExpectedSpriteAddress(2);
+	unsigned int slot, visible = 0;
+	char line[112];
+	getViewTab(&splitTable, 3);
+	splitFirst = runtimeSpriteAddressAtX((word)splitTable.xPos * 2,
+		NULL, NULL, NULL);
+	splitSecond = runtimeSpriteAddressAtX(((word)splitTable.xPos + 32) * 2,
+		NULL, NULL, NULL);
+	for (slot = 0; slot < 128; ++slot) {
+		unsigned long attributes = SPRITE_ATTRIBUTES_START + (unsigned long)slot * 8;
+		if (testPeek(attributes + 6) & 12)
+			++visible;
+	}
+	sprintf(line, "VISIBLE SPRITES count=%u\n", visible);
+	auditOutput(line);
+	sprintf(line, "SPRITE PIXELS mirror=%lu alloc=%lu:%u,%u,%u attr=%u:%u,%u split=%lu:%u,%u/%lu:%u\n",
+		mirrored, expectedAddress, runtimeSpritePixel(expectedAddress, 0),
+		runtimeSpritePixel(expectedAddress, 2), runtimeSpritePixel(expectedAddress, 7),
+		mirrorFlags, mirrorAddressHigh,
+		mirrorAddressLow, splitFirst, runtimeSpritePixel(splitFirst, 0),
+		runtimeSpritePixel(splitFirst, 63), splitSecond, runtimeSpritePixel(splitSecond, 0));
+	auditOutput(line);
+	auditCheck(visible >= 5, "full runtime workload did not publish five sprite segments");
+	auditCheck(mirrored == expectedAddress,
+		"published mirrored sprite address differs from its allocated VERA bitmap");
+	auditCheck(mirrored && (mirrorFlags & 1) &&
+		runtimeSpritePixel(mirrored, 0) == 1 && runtimeSpritePixel(mirrored, 5) == 1 &&
+		runtimeSpritePixel(mirrored, 6) == 3 && runtimeSpritePixel(mirrored, 7) == 3,
+		"published mirrored sprite lost its literal pixels or H-flip attribute");
+	auditCheck(splitFirst && splitSecond && runtimeSpritePixel(splitFirst, 0) == 3 &&
+		runtimeSpritePixel(splitFirst, 63) == 3 && runtimeSpritePixel(splitSecond, 0) == 3,
+		"published split sprite bitmaps have the wrong literal pixels");
+}
+#pragma code-name (pop)
+#endif
+
 static void makeObjects(void)
 {
     objectType object;
@@ -86,8 +464,9 @@ static void makeObjects(void)
 }
 extern byte bDSpriteAllocTable[];
 extern byte allocationArray[];
-static byte attrs[8], mouseAttrs[8], allocation[TOTAL_REAL_BLOCKS];
-static byte baselineAllocations[ALLOCATION_ARRAY_SIZE], currentAllocations[ALLOCATION_ARRAY_SIZE];
+extern byte inventoryBuffer[];
+static byte attrs[8], mouseAttrs[8];
+byte baselineAllocations[ALLOCATION_ARRAY_SIZE], currentAllocations[ALLOCATION_ARRAY_SIZE];
 static byte pattern(unsigned long address)
 {
     return (byte)(address ^ (address >> 8));
@@ -113,13 +492,16 @@ static void checkBackground(void)
 }
 static void checkClosed(void)
 {
-    byte i;
+    byte i, amount;
     unsigned j;
     for (i=0; i<8; ++i) check(testPeek(0x1fff8UL+i) == attrs[i], "inspect left sprite attributes behind");
-    memCpyBanked(allocation, bDSpriteAllocTable, OBJECT_BANK, sizeof(allocation));
-    for (j=0; j<TOTAL_REAL_BLOCKS; ++j) check(allocation[j] == 0, "inspect bitmap not released");
+    for (j=0; j<TOTAL_REAL_BLOCKS; j += 80) {
+        amount = TOTAL_REAL_BLOCKS - j;
+        if (amount > 80) amount = 80;
+        memCpyBanked(inventoryBuffer, bDSpriteAllocTable+j, SPRITE_MEMORY_MANAGER_BANK, amount);
+        for (i=0; i<amount; ++i) check(inventoryBuffer[i] == 0, "inspect bitmap not released");
+    }
 }
-static void checkVsyncChain(void);
 static void checkArt(byte object, unsigned char expected, byte row, byte column)
 {
     unsigned long address;
@@ -156,19 +538,21 @@ static void number(unsigned long value)
     do { digits[n++] = 48 + value % 10; value /= 10; } while (value);
     while (n) *(volatile byte*)0x9fbb = digits[--n];
 }
+void auditNumber(unsigned long value) { number(value); }
 static void checkVsyncChain(void)
 {
     unsigned int observerBefore = testVsyncIrqs;
     volatile unsigned int* counter = (volatile unsigned int*)&vSyncCounter;
     unsigned int gameBefore = *counter;
-    unsigned budget = 0xffffu;
-    while (budget && testVsyncIrqs == observerBefore) --budget;
-    if (testVsyncIrqs != observerBefore && *counter != gameBefore) return;
-    output("INVENTORY FAIL: inspect close did not receive a chained VSYNC; observer ");
+    unsigned long start = cycles();
+    while (testVsyncIrqs == observerBefore && cycles() - start < 3000000UL) {}
+    if (testVsyncIrqs != observerBefore && *counter != gameBefore &&
+        (*(volatile byte*)0x9f26 & 1)) return;
+    output("INVENTORY FAIL: real VSYNC chain did not advance observer and game counters; observer ");
     number(observerBefore); output("->"); number(testVsyncIrqs);
     output("; game "); number(gameBefore); output("->"); number(*counter);
     output("; CPU-I "); number((testStatus() & 4) != 0);
-    output("; VERA-IEN "); number(*(volatile byte*)0x9f25);
+	output("; VERA-IEN "); number(*(volatile byte*)0x9f26);
     output("; VERA-ISR "); number(*(volatile byte*)0x9f27);
     output("; IRQ vector "); number(*(volatile byte*)0x0314);
     output("/"); number(*(volatile byte*)0x0315); output("; ");
@@ -198,7 +582,7 @@ static void fullInventoryPerformance(void)
 }
 static void nameAndPagingCases(void)
 {
-    static byte keys[256];
+	static byte keys[256];
     static byte mixed[] = {68,97,71,103,69,114,0};
     objectType object;
     byte old, one = 88;
@@ -235,21 +619,31 @@ static void unexpectedExit(void)
 }
 static void allocationFailureCases(void)
 {
-    static byte* pointers[ALLOCATION_ARRAY_SIZE];
-    static byte banks[ALLOCATION_ARRAY_SIZE];
     static VeraSpriteAddress sprites[TOTAL_REAL_BLOCKS/64];
-    byte count = 0, i;
-    unsigned j;
+    byte count = 0, i, area, segment;
+    unsigned j, index = 0;
+    static const unsigned segmentSizes[] = {TINY_SIZE, EXTRA_SMALL_SIZE, SMALL_SIZE, MEDIUM_SIZE, LARGE_SIZE};
+    static const byte segmentCounts[] = {TINY_NO_SEGMENTS, EXTRA_SMALL_NO_SEGMENTS, SMALL_NO_SEGMENTS, MEDIUM_NO_SEGMENTS, LARGE_NO_SEGMENTS};
+    static const byte firstBanks[] = {TINY_FIRST_BANK, EXTRA_SMALL_FIRST_BANK, SMALL_FIRST_BANK, MEDIUM_FIRST_BANK, LARGE_FIRST_BANK};
+    unsigned long offset;
     for (j=TINY_NO_SEGMENTS+EXTRA_SMALL_NO_SEGMENTS; j<ALLOCATION_ARRAY_SIZE; ++j)
         if (!baselineAllocations[j]) {
-            pointers[count] = b10BankedAlloc(1368, &banks[count]);
-            ++count;
+            b10BankedAlloc(1368, &area); /* The allocation bitmap records the returned segment. */
         }
     /* The product must stay alive when the disposable panel cannot allocate. */
     testPutKey(KEY_ESC);
     check(inventoryShow(TRUE) == 255 && !inventoryActive, "exhausted save-under did not cancel safely");
     check(cbm_k_getin() == KEY_ESC, "failed inventory consumed queued input");
-    for (i=0; i<count; ++i) check(b10BankedDealloc(pointers[i], banks[i]), "fixture RAM release failed");
+    memCpyBanked(currentAllocations, allocationArray, MEMORY_MANAGEMENT_BANK, sizeof(currentAllocations));
+    for (area = 0; area < NO_SIZES; ++area) {
+        for (segment = 0; segment < segmentCounts[area]; ++segment, ++index) {
+            if (!baselineAllocations[index] && currentAllocations[index]) {
+                offset = (unsigned long)segment * segmentSizes[area];
+                check(b10BankedDealloc((byte*)(BANK_MIN + offset % MEMORY_MANAGER_BANK_SIZE),
+                    firstBanks[area] + offset / MEMORY_MANAGER_BANK_SIZE), "fixture RAM release failed");
+            }
+        }
+    }
     checkBackground();
     count = 0;
     while (count < TOTAL_REAL_BLOCKS/64) {
@@ -406,6 +800,7 @@ int main(void)
     allocationFailureCases();
     transferStateCases();
     kq1ObjectCases();
+    output("INVENTORY PRELUDE DONE; ");
 #if defined(AUDIT_CASE_all) || defined(AUDIT_CASE_sound)
     soundAuditCases();
 #endif
@@ -420,6 +815,9 @@ int main(void)
 #endif
 #if defined(AUDIT_CASE_all) || defined(AUDIT_CASE_views)
     viewsAuditCases();
+#endif
+#if defined(AUDIT_CASE_viewaliases)
+    viewaliasesAuditCases();
 #endif
 #if defined(AUDIT_CASE_showobj)
     showObjAuditCases();
@@ -483,6 +881,13 @@ int main(void)
 #endif
 #if defined(AUDIT_CASE_backbuffer)
     backbufferAuditCases();
+#endif
+#if defined(AUDIT_CASE_fullframe)
+    fullframeAuditCases();
+#endif
+#if defined(AUDIT_CASE_integration)
+    integrationAuditPrepare();
+    integrationAuditCases();
 #endif
     output("INVENTORY PASS");
     testExit();

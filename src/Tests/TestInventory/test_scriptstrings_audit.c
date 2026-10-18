@@ -31,36 +31,66 @@ static byte messageBank;
 extern void testPutKey(byte key);
 extern void __fastcall__ testFeedKeys(const byte* keys);
 
-#pragma wrapped-call (push, trampoline, CONTROLLER_BANK)
+/* Banked trampolines switch RAM_BANK, so pointers to caller-owned literals
+ * must carry their source bank across these test helpers. */
+#pragma wrapped-call (push, trampoline, 0x0f)
 extern void scriptstringsAuditBankedCases(void);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, 0x07)
+static void getNumSurvivesAllocationFailure(void);
+static void getNumCopiesInputFromItsBank(void);
+static void writeParserString(byte slot, const char* value, byte valueBank);
+static void writeParserWord(byte slot, const char* value, byte valueBank);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, 0x02)
+static void parseUsesItsOperand(void);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, 0x0f)
+static void scriptstringsRemainingCases(void);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, 0x0f)
+static void writePromptMessage(const char* value, byte valueBank);
+static void runScript(const byte* code, byte length, byte codeBank);
+static void resetStringInput(void);
+#pragma wrapped-call (pop)
+#pragma wrapped-call (push, trampoline, 0x0f)
+static void storeHeldAllocation(byte* table, byte tableBank, unsigned int index,
+    byte* pointer, byte bank);
 #pragma wrapped-call (pop)
 
 /* Keep this audit's code and bytecode literals out of the low-memory test image. */
 #pragma code-name (push, "BANKRAM01")
 #pragma rodata-name (push, "BANKRAM01")
 
-static void writeParserString(byte slot, const char* value)
+#pragma code-name (push, "BANKRAM07")
+#pragma rodata-name (push, "BANKRAM07")
+static void writeParserString(byte slot, const char* value, byte valueBank)
 {
     char buffer[40];
     byte sourceBank = RAM_BANK;
-    size_t length = strlen(value);
+    size_t length = strLenBanked((char*)value, valueBank);
     if (length >= sizeof(buffer)) length = sizeof(buffer) - 1;
-    memcpy(buffer, value, length);
+    memset(buffer, 0, sizeof(buffer));
+    memCpyBankedBetween((byte*)buffer, sourceBank, (byte*)value, valueBank, length);
     buffer[length] = 0;
     memCpyBankedBetween((byte*)string[slot], PARSER_BANK, (byte*)buffer, sourceBank, sizeof(buffer));
 }
 
-static void writeParserWord(byte slot, const char* value)
+static void writeParserWord(byte slot, const char* value, byte valueBank)
 {
     char buffer[80];
     byte sourceBank = RAM_BANK;
-    size_t length = strlen(value);
+    size_t length = strLenBanked((char*)value, valueBank);
     if (length >= sizeof(buffer)) length = sizeof(buffer) - 1;
     memset(buffer, 0, sizeof(buffer));
-    memcpy(buffer, value, length);
-    memCpyBankedBetween((byte*)b7WordText[slot], PARSER_BANK,
+    memCpyBankedBetween((byte*)buffer, sourceBank, (byte*)value, valueBank, length);
+    memCpyBankedBetween((byte*)b7WordText[slot], STRING_BANK,
         (byte*)buffer, sourceBank, sizeof(buffer));
 }
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "BANKRAM0F")
+#pragma rodata-name (push, "BANKRAM0F")
 
 static void initScriptFixture(void)
 {
@@ -81,16 +111,16 @@ static void initScriptFixture(void)
     b5SetLogicFile(&testFile, TEST_LOGIC_NUMBER);
 }
 
-static void writePromptMessage(const char* value)
+static void writePromptMessage(const char* value, byte valueBank)
 {
     char* message = (char*)(messageData + sizeof(char*));
     char buffer[64];
     byte sourceBank = RAM_BANK;
-    size_t length = strlen(value);
+    size_t length = strLenBanked((char*)value, valueBank);
 
     if (length >= sizeof(buffer)) length = sizeof(buffer) - 1;
     memset(buffer, 0, sizeof(buffer));
-    memcpy(buffer, value, length);
+    memCpyBankedBetween((byte*)buffer, sourceBank, (byte*)value, valueBank, length);
     memCpyBankedBetween(messageData, messageBank, (byte*)&message, sourceBank, sizeof(message));
     memCpyBankedBetween((byte*)message, messageBank, (byte*)buffer, sourceBank, sizeof(buffer));
     testFile.messages = (byte**)messageData;
@@ -99,14 +129,18 @@ static void writePromptMessage(const char* value)
     b5SetLogicFile(&testFile, TEST_LOGIC_NUMBER);
 }
 
-static void runScript(const byte* code, byte length)
+static void runScript(const byte* code, byte length, byte codeBank)
 {
-    memCpyBankedBetween(scriptData, scriptBank, (byte*)code, RAM_BANK, length);
+    memCpyBankedBetween(scriptData, scriptBank, (byte*)code, codeBank, length);
     testFile.codeSize = length;
     b5SetLogicFile(&testFile, TEST_LOGIC_NUMBER);
     executeLogic(&logics[TEST_LOGIC_NUMBER], TEST_LOGIC_NUMBER);
 }
 
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "BANKRAM02")
+#pragma rodata-name (push, "BANKRAM02")
 static void parseUsesItsOperand(void)
 {
     /* Seed the previous slot local with the opposite value to the PARSE operand. */
@@ -117,22 +151,26 @@ static void parseUsesItsOperand(void)
     char copied[40];
     char* stored;
 
-    writeParserString(0, "");
-    writeParserString(1, "unlisted");
-    writeParserWord(0, "");
+    writeParserString(0, "", 0x02);
+    writeParserString(1, "unlisted", 0x02);
+    writeParserWord(0, "", 0x02);
     stored = b7GetInternalStringPtr(1, &length);
     memCpyBanked((byte*)copied, (byte*)stored, PARSER_BANK, sizeof(copied));
     auditCheck(length == 8 && !strcmp(copied, "unlisted"), "STRING SLOT 1 FIXTURE WAS NOT WRITTEN TO PARSER BANK");
     memCpyBanked((byte*)&numWords, (byte*)&noWords, WORD_BANK, sizeof(noWords));
     var[9] = 0;
     auditOutput("PARSE MUST USE EACH BYTECODE STRING OPERAND; ");
-    runScript(parseOne, sizeof(parseOne));
+    runScript(parseOne, sizeof(parseOne), 0x02);
     auditCheck(var[9] == 1, "PARSE DID NOT USE STRING SLOT 1");
     var[9] = 55;
-    writeParserWord(0, "unlisted");
-    runScript(parseZero, sizeof(parseZero));
+    writeParserWord(0, "unlisted", 0x02);
+    runScript(parseZero, sizeof(parseZero), 0x02);
     auditCheck(var[9] == 55, "PARSE DID NOT USE STRING SLOT 0");
 }
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "BANKRAM0F")
+#pragma rodata-name (push, "BANKRAM0F")
 
 static void getStringRejectsInvalidDestination(void)
 {
@@ -144,14 +182,14 @@ static void getStringRejectsInvalidDestination(void)
     char observed;
     int keyCode;
 
-    writePromptMessage("");
+    writePromptMessage("", 0x0f);
     memCpyBankedBetween((byte*)string + sizeof(string), PARSER_BANK,
         (byte*)&guard, RAM_BANK, sizeof(guard));
     var[251] = 0;
     testPutKey('Q');
     testPutKey(KEY_ENTER);
     auditOutput("GET.STRING MUST REJECT SLOT 12 WITHOUT WRITING PAST THE STRING TABLE; ");
-    runScript(invalidDestination, sizeof(invalidDestination));
+    runScript(invalidDestination, sizeof(invalidDestination), 0x0f);
     memCpyBanked((byte*)&observed, (byte*)string + sizeof(string), PARSER_BANK, sizeof(observed));
     auditCheck(observed == guard, "GET.STRING SLOT 12 WROTE PAST THE INTERNAL STRING TABLE");
     auditCheck(var[251] == 77, "GET.STRING SLOT 12 DID NOT CONSUME ITS OPERANDS");
@@ -180,13 +218,13 @@ static void getStringWaitsForInput(void)
     char observed[40];
     boolean wasInventoryActive = inventoryActive;
 
-    writePromptMessage("");
-    writeParserString(0, "");
+    writePromptMessage("", 0x0f);
+    writeParserString(0, "", 0x0f);
     resetStringInput();
     var[252] = 0;
     inventoryActive = TRUE;
     testFeedKeys(keys);
-    runScript(script, sizeof(script));
+    runScript(script, sizeof(script), 0x0f);
     inventoryActive = wasInventoryActive;
     memCpyBanked((byte*)observed, (byte*)string[0], PARSER_BANK, sizeof(observed));
     auditCheck(!strcmp(observed, "AB"), "GET.STRING RETURNED BEFORE THE KERNAL INPUT WAS COMPLETE");
@@ -206,14 +244,14 @@ static void getStringStartsFreshForEachPrompt(void)
 
     keys[0] = 'A'; keys[1] = KEY_ENTER; keys[2] = 'B';
     keys[3] = KEY_ENTER; keys[4] = 0;
-    writePromptMessage("");
-    writeParserString(0, "");
-    writeParserString(1, "");
+    writePromptMessage("", 0x0f);
+    writeParserString(0, "", 0x0f);
+    writeParserString(1, "", 0x0f);
     resetStringInput();
     var[252] = 0;
     inventoryActive = TRUE;
     testFeedKeys(keys);
-    runScript(script, sizeof(script));
+    runScript(script, sizeof(script), 0x0f);
     inventoryActive = wasInventoryActive;
     memCpyBanked((byte*)observed, (byte*)string[0], PARSER_BANK, sizeof(observed));
     auditCheck(!strcmp(observed, "A"), "FIRST GET.STRING PROMPT LOST ITS INPUT");
@@ -238,15 +276,15 @@ static void getStringClampsToInternalRow(void)
     for (i = 0; i < 41; ++i) keys[i] = 'A';
     keys[41] = KEY_ENTER;
     keys[42] = 0;
-    writePromptMessage("");
-    writeParserString(0, "");
-    writeParserString(1, "sentinel");
+    writePromptMessage("", 0x0f);
+    writeParserString(0, "", 0x0f);
+    writeParserString(1, "sentinel", 0x0f);
     resetStringInput();
     var[253] = 0;
     inventoryActive = TRUE;
     testFeedKeys(keys);
     auditOutput("GET.STRING LENGTH 255 MUST FIT THE 40-BYTE STRING ROW; ");
-    runScript(script, sizeof(script));
+    runScript(script, sizeof(script), 0x0f);
     inventoryActive = wasInventoryActive;
 
     memset(expected, 'A', sizeof(expected) - 1);
@@ -265,6 +303,10 @@ static void getStringClampsToInternalRow(void)
     auditCheck(var[253] == 67, "GET.STRING DID NOT EXECUTE THE FOLLOWING OPCODE");
 }
 
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "BANKRAM0F")
+#pragma rodata-name (push, "BANKRAM0F")
 static void wordToStringCopiesWord(void)
 {
     static const byte script[] = {OP_WORD_TO_STRING, 1, 0, 0};
@@ -272,10 +314,10 @@ static void wordToStringCopiesWord(void)
     size_t length;
     char* value;
 
-    writeParserWord(0, "Echo");
-    writeParserString(1, "stale");
+    writeParserWord(0, "Echo", 0x0f);
+    writeParserString(1, "stale", 0x0f);
     auditOutput("WORD.TO.STRING MUST COPY WORD 0 INTO STRING 1; ");
-    runScript(script, sizeof(script));
+    runScript(script, sizeof(script), 0x0f);
     value = b7GetInternalStringPtr(1, &length);
     memCpyBanked((byte*)observed, (byte*)value, PARSER_BANK, sizeof(observed));
     auditCheck(length == 4 && !strcmp(observed, "Echo"),
@@ -296,18 +338,18 @@ static void wordToStringRejectsOutOfRangeSlots(void)
     size_t length;
     char* value;
 
-    writeParserWord(0, "Echo");
+    writeParserWord(0, "Echo", 0x0f);
     resetStringInput();
     var[254] = 0;
-    runScript(invalidString, sizeof(invalidString));
+    runScript(invalidString, sizeof(invalidString), 0x0f);
     memCpyBanked((byte*)observed, (byte*)b7CurrentInputStr, PARSER_BANK, sizeof(observed));
     auditCheck(observed[0] == 0, "WORD.TO.STRING SLOT 12 WROTE PAST THE STRING TABLE");
     auditCheck(var[254] == 78, "WORD.TO.STRING SLOT 12 DID NOT CONSUME ITS OPERANDS");
 
-    writeParserString(0, "bad");
-    writeParserString(1, "keep");
+    writeParserString(0, "bad", 0x0f);
+    writeParserString(1, "keep", 0x0f);
     auditOutput("WORD.TO.STRING MUST REJECT WORD SLOT 10; ");
-    runScript(invalidWord, sizeof(invalidWord));
+    runScript(invalidWord, sizeof(invalidWord), 0x0f);
     value = b7GetInternalStringPtr(0, &length);
     memCpyBanked((byte*)observed, (byte*)value, PARSER_BANK, sizeof(observed));
     auditCheck(length == 3 && !strcmp(observed, "bad"),
@@ -330,12 +372,12 @@ static void setStringCopiesMessage(void)
     size_t length;
     char* value;
 
-    writePromptMessage("Set text");
-    writeParserString(0, "old");
-    writeParserString(11, "old");
+    writePromptMessage("Set text", 0x0f);
+    writeParserString(0, "old", 0x0f);
+    writeParserString(11, "old", 0x0f);
     var[254] = 0;
     auditOutput("SET.STRING MUST COPY MESSAGE 1 INTO STRING SLOTS 0 AND 11; ");
-    runScript(script, sizeof(script));
+    runScript(script, sizeof(script), 0x0f);
     value = b7GetInternalStringPtr(0, &length);
     memCpyBanked((byte*)observed, (byte*)value, PARSER_BANK, sizeof(observed));
     auditCheck(length == 8 && !strcmp(observed, "Set text"),
@@ -355,11 +397,11 @@ static void setStringTruncatesLongMessage(void)
     size_t length;
     char* value;
 
-    writePromptMessage(longMessage);
-    writeParserString(0, "");
-    writeParserString(1, "sentinel");
+    writePromptMessage(longMessage, 0x0f);
+    writeParserString(0, "", 0x0f);
+    writeParserString(1, "sentinel", 0x0f);
     auditOutput("SET.STRING MUST TERMINATE A LONG MESSAGE IN ITS 40-BYTE ROW; ");
-    runScript(script, sizeof(script));
+    runScript(script, sizeof(script), 0x0f);
     value = b7GetInternalStringPtr(0, &length);
     memCpyBanked((byte*)observed, (byte*)value, PARSER_BANK, sizeof(observed));
     auditCheck(length == sizeof(observed) - 1 && observed[sizeof(observed) - 1] == 0,
@@ -376,16 +418,16 @@ static void setGameIdKeepsItsTerminator(void)
     char savedGameId[GAMEID_MAX_LENGTH + 1];
 
     memcpy(savedGameId, gameId, sizeof(savedGameId));
-    writePromptMessage("123456");
+    writePromptMessage("123456", 0x0f);
     var[255] = 0;
     auditOutput("SET.GAME.ID MUST KEEP ITS SIX-CHARACTER TERMINATOR; ");
-    runScript(script, sizeof(script));
+    runScript(script, sizeof(script), 0x0f);
     auditCheck(!strcmp(gameId, "123456"), "SET.GAME.ID DID NOT STORE SIX CHARACTERS AND NUL");
     auditCheck(var[255] == 89, "SET.GAME.ID DID NOT EXECUTE THE FOLLOWING OPCODE");
 
-    writePromptMessage("1234567");
+    writePromptMessage("1234567", 0x0f);
     var[255] = 0;
-    runScript(script, sizeof(script));
+    runScript(script, sizeof(script), 0x0f);
     auditCheck(gameId[GAMEID_MAX_LENGTH] == 0,
         "SET.GAME.ID SEVEN-CHARACTER MESSAGE OVERWROTE THE TERMINATOR");
     auditCheck(var[255] == 89, "SET.GAME.ID OVERLONG MESSAGE DID NOT EXECUTE THE FOLLOWING OPCODE");
@@ -399,6 +441,10 @@ static void storeHeldAllocation(byte* table, byte tableBank, unsigned int index,
     memCpyBankedBetween(record + sizeof(pointer), tableBank, &bank, RAM_BANK, sizeof(bank));
 }
 
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "BANKRAM07")
+#pragma rodata-name (push, "BANKRAM07")
 static void releaseHeldAllocations(byte* table, byte tableBank, unsigned int count)
 {
     unsigned int i;
@@ -436,7 +482,7 @@ static void getNumSurvivesAllocationFailure(void)
     auditCheck(count > 0, "GET.NUM EXHAUSTION FIXTURE COULD NOT HOLD ANY ALLOCATIONS");
 
     var[253] = 0;
-    runScript(script, sizeof(script));
+    runScript(script, sizeof(script), 0x07);
     auditCheck(var[253] == 88, "GET.NUM ALLOCATION FAILURE DID NOT CONSUME OPERANDS");
 
     releaseHeldAllocations(heldAllocations, heldBank, count);
@@ -473,13 +519,13 @@ static void getNumCopiesInputFromItsBank(void)
     auditCheck(count < ALLOCATION_ARRAY_SIZE, "GET.NUM INPUT FIXTURE DID NOT REACH A SAFE BANK OFFSET");
 
     keys[0] = '4'; keys[1] = '2'; keys[2] = KEY_ENTER; keys[3] = 0;
-    writePromptMessage("");
+    writePromptMessage("", 0x07);
     resetStringInput();
     var[252] = var[253] = 0;
     inventoryActive = TRUE;
     testFeedKeys(keys);
     auditOutput("GET.NUM MUST READ ITS BANKED INPUT AND STORE 42; ");
-    runScript(script, sizeof(script));
+    runScript(script, sizeof(script), 0x07);
     inventoryActive = wasInventoryActive;
     auditCheck(var[252] == 42, "GET.NUM DID NOT READ THE INPUT BUFFER'S BANK");
     auditCheck(var[253] == 89, "GET.NUM DID NOT EXECUTE THE FOLLOWING OPCODE");
@@ -487,6 +533,27 @@ static void getNumCopiesInputFromItsBank(void)
     releaseHeldAllocations(heldAllocations, heldBank, count);
     auditCheck(b10BankedDealloc(heldAllocations, heldBank), "GET.NUM INPUT RECORD BUFFER LEAKED");
 }
+
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "BANKRAM0F")
+#pragma rodata-name (push, "BANKRAM0F")
+
+static void scriptstringsRemainingCases(void)
+{
+    wordToStringCopiesWord();
+    wordToStringRejectsOutOfRangeSlots();
+    setStringCopiesMessage();
+    setStringTruncatesLongMessage();
+    setGameIdKeepsItsTerminator();
+    getNumCopiesInputFromItsBank();
+    getNumSurvivesAllocationFailure();
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+
+#pragma code-name (push, "BANKRAM0F")
+#pragma rodata-name (push, "BANKRAM0F")
 
 void scriptstringsAuditBankedCases(void)
 {
@@ -496,13 +563,7 @@ void scriptstringsAuditBankedCases(void)
     getStringWaitsForInput();
     getStringStartsFreshForEachPrompt();
     getStringClampsToInternalRow();
-    wordToStringCopiesWord();
-    wordToStringRejectsOutOfRangeSlots();
-    setStringCopiesMessage();
-    setStringTruncatesLongMessage();
-    setGameIdKeepsItsTerminator();
-    getNumCopiesInputFromItsBank();
-    getNumSurvivesAllocationFailure();
+    scriptstringsRemainingCases();
     b5SetLogicFile(&savedFile, TEST_LOGIC_NUMBER);
     b5SetLogicEntry(&savedEntry, TEST_LOGIC_NUMBER);
     auditCheck(b10BankedDealloc(messageData, messageBank), "SCRIPT STRING MESSAGE FIXTURE LEAKED");
@@ -510,6 +571,8 @@ void scriptstringsAuditBankedCases(void)
     auditOutput("SCRIPT STRINGS AUDIT PASS\n");
 }
 
+#pragma rodata-name (pop)
+#pragma code-name (pop)
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 

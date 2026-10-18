@@ -17,16 +17,14 @@ extern void testDisableInterrupts(void), testEnableInterrupts(void);
 extern byte priorityBase, b9PreComputedPriority[];
 extern byte testStatus(void);
 
-#pragma wrapped-call (push, trampoline, CONTROLLER_BANK)
 static void priorityPopulationCase(void);
 static void priority20AuditCasesBanked(void);
-#pragma wrapped-call (pop)
 
 #define PRIORITY_POPULATE_BASELINE_CYCLES 1712466UL
 #define PRIORITY_POPULATE_CYCLE_LIMIT (PRIORITY_POPULATE_BASELINE_CYCLES * 3UL / 4)
 
-#pragma code-name (push, "BANKRAM01")
-#pragma rodata-name (push, "BANKRAM01")
+#pragma code-name (push, "CODE")
+#pragma rodata-name (push, "RODATA")
 static void coldBulkSplit(View* view, Loop* loop, Cel* cel, ViewTable* table, byte flipped)
 {
     ViewTableMetadata metadata;

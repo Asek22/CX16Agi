@@ -15,8 +15,8 @@ extern void testDisableInterrupts(void), testEnableInterrupts(void);
 extern byte testStatus(void);
 static void activeSoundDiscard(void);
 
-#pragma code-name (push, "BANKRAM01")
-#pragma rodata-name (push, "BANKRAM01")
+#pragma code-name (push, "CODE")
+#pragma rodata-name (push, "RODATA")
 
 static void stoppedSound(void)
 {

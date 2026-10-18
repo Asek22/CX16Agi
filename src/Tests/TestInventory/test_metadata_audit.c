@@ -9,9 +9,7 @@ extern void bESetViewMetadata(View* view, ViewTable* table, byte viewNum, byte t
 extern void bEResetSpritePointers(void);
 extern void bEResetSpritesUpdatedBuffer(void);
 #pragma wrapped-call (pop)
-#pragma wrapped-call (push, trampoline, PICTURE_DATA_BANK)
 void metadataBankedCases(void);
-#pragma wrapped-call (pop)
 extern boolean agiBlit(byte entry, boolean disableInterrupts);
 extern void setLoadedLoop(View* view, Loop* loop, byte number);
 extern void setLoadedCel(Loop* loop, Cel* cel, byte number);
@@ -140,8 +138,8 @@ static void fullCacheActivePayloadAlias(void)
     auditCheck(allocationsMatchSnapshot(), "active-alias cache cleanup leaked allocations");
 }
 
-#pragma code-name (push, "BANKRAM0C")
-#pragma rodata-name (push, "BANKRAM0C")
+#pragma code-name (push, "CODE")
+#pragma rodata-name (push, "RODATA")
 static void makeBlitView(View* view, Loop* loop, Cel* cel, byte viewNum)
 {
     byte row, run[2] = {0x18, 0};

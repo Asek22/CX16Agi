@@ -20,10 +20,10 @@ extern byte* bESpritesUpdatedBufferPointer;
 extern byte bEBulkAllocatedAddresses[];
 extern byte bDSpriteAllocTable[];
 extern void testDisableInterrupts(void), testEnableInterrupts(void);
-#pragma wrapped-call (push, trampoline, CONTROLLER_BANK)
 void celEightAddressCase(void);
-void exhaustedAllocationCase(void);
 void splitCallerCase(byte width);
+#pragma wrapped-call (push, trampoline, CONTROLLER_BANK)
+void exhaustedAllocationCase(void);
 #pragma wrapped-call (pop)
 #pragma wrapped-call (push, trampoline, 0x02)
 void highCelAddressCase(void);
@@ -58,7 +58,7 @@ void reportCycles(const char* label, unsigned long value)
 }
 #pragma code-name (pop)
 
-#pragma code-name (push, "BANKRAM01")
+#pragma code-name (push, "CODE")
 void splitCallerCase(byte width)
 {
     View view;
@@ -230,6 +230,7 @@ void highCelAddressCase(void)
 }
 #pragma code-name (pop)
 
+#pragma code-name (push, "BANKRAM01")
 void exhaustedAllocationCase(void)
 {
     View view;
@@ -323,6 +324,7 @@ void exhaustedAllocationCase(void)
     }
     bEResetSpritesUpdatedBuffer(); bEResetViewTableMetadata(); b9DiscardView(245); bDResetSpriteMemoryManager();
 }
+#pragma code-name (pop)
 #pragma code-name (pop)
 
 void blit20AuditCases(void)

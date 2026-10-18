@@ -36,17 +36,15 @@ void splitBackBufferRetiresEverySlot(void);
 void roomResetCancelsPendingPublication(void);
 void delayedPublicationRetirement(void);
 #pragma wrapped-call (pop)
-#pragma wrapped-call (push, trampoline, 0x0D)
 void verifyFailedBackBufferAllocation(VeraSpriteAddress old0,
     VeraSpriteAddress old1, VeraSpriteAddress oneFreeSpan);
-#pragma wrapped-call (pop)
 #pragma wrapped-call (push, trampoline, 0x0E)
 void configureSplitResizeFixture(void);
 #pragma wrapped-call (pop)
 #pragma wrapped-call (push, trampoline, 0x0A)
 void configureSplitOldBufferFixture(void);
 #pragma wrapped-call (pop)
-#pragma wrapped-call (push, trampoline, 0x0C)
+#pragma wrapped-call (push, trampoline, 0x09)
 void unpublishedResizeIsRejected(void);
 #pragma wrapped-call (pop)
 #pragma wrapped-call (push, trampoline, 0x0B)
@@ -66,19 +64,14 @@ extern void bDDeleteAllocation(VeraSpriteAddress address, SpriteAllocationSize w
 #pragma wrapped-call (push, trampoline, VIEW_CODE_BANK_1)
 extern void b9AnimateObjects(void);
 #pragma wrapped-call (pop)
-#pragma wrapped-call (push, trampoline, 0x0C)
 void checkPublishedBackBufferForEntry(byte entry, byte segments);
-#pragma wrapped-call (pop)
 unsigned long steadyBackBufferBlitWorkload(void);
 void compareRamToWarmCache(void);
-#pragma wrapped-call (push, trampoline, CONTROLLER_BANK)
 byte copyBackBufferAddresses(byte entry, VeraSpriteAddress* addresses);
-#pragma wrapped-call (pop)
 #pragma wrapped-call (push, trampoline, 0x08)
 void checkVramSpan(VeraSpriteAddress address, byte width, byte height, byte allocated);
 #pragma wrapped-call (pop)
 
-#pragma wrapped-call (push, trampoline, CONTROLLER_BANK)
 void publishUpdates(void);
 void queueBlitUpdate(byte entry, byte loopNumber, byte animated, byte expectEmptyBuffer);
 void blitAndPublish(byte entry, byte loopNumber, byte animated);
@@ -86,7 +79,6 @@ unsigned long activeBackBufferAddress(byte entry);
 void captureVramBaseline(void);
 void compareRamToBaseline(void);
 void compareVramToBaseline(void);
-#pragma wrapped-call (pop)
 
 #pragma wrapped-call (push, trampoline, 0x08)
 void checkVramBlock(VeraSpriteAddress address, byte allocated, const char* message);
@@ -96,12 +88,12 @@ void checkVramBlock(VeraSpriteAddress address, byte allocated, const char* messa
 extern void bAResetViews(void);
 #pragma wrapped-call (pop)
 
-#pragma code-name (push, "BANKRAM01")
-#pragma rodata-name (push, "BANKRAM01")
-#pragma bss-name (push, "BANKRAM01")
+#pragma code-name (push, "CODE")
+#pragma rodata-name (push, "RODATA")
+#pragma bss-name (push, "BSS")
 static byte baselineRam[ALLOCATION_ARRAY_SIZE];
 static byte warmRam[ALLOCATION_ARRAY_SIZE];
-static byte current[64];
+static byte current[40];
 static unsigned baselineVramUsed;
 #pragma bss-name (pop)
 
@@ -201,7 +193,7 @@ void checkVramSpan(VeraSpriteAddress address, byte width, byte height, byte allo
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 
-#pragma code-name (push, "BANKRAM0C")
+#pragma code-name (push, "CODE")
 #pragma rodata-name (push, "RODATA")
 void checkPublishedBackBufferForEntry(byte entry, byte segments)
 {
@@ -493,7 +485,7 @@ void splitBackBufferRetiresEverySlot(void)
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 
-#pragma code-name (push, "BANKRAM0C")
+#pragma code-name (push, "BANKRAM09")
 #pragma rodata-name (push, "RODATA")
 void unpublishedResizeIsRejected(void)
 {
@@ -681,7 +673,7 @@ void collectAndCleanupRetriedBackBuffer(VeraSpriteAddress old0,
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 
-#pragma code-name (push, "BANKRAM0D")
+#pragma code-name (push, "CODE")
 #pragma rodata-name (push, "RODATA")
 void verifyFailedBackBufferAllocation(VeraSpriteAddress old0,
     VeraSpriteAddress old1, VeraSpriteAddress oneFreeSpan)
@@ -949,7 +941,7 @@ void configureSplitOldBufferFixture(void)
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 
-#pragma code-name (push, "BANKRAM01")
+#pragma code-name (push, "CODE")
 #pragma rodata-name (push, "RODATA")
 void repeatedResizeRetiresOldBuffers(void)
 {
