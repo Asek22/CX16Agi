@@ -9,10 +9,18 @@ extern void __fastcall__ testPoke(byte value, unsigned long address);
 extern void testPutKey(byte key);
 extern void testDisableInterrupts(void), testEnableInterrupts(void);
 extern byte testStatus(void);
+extern byte inventoryActive;
 extern byte allocationArray[];
+extern byte b3PaletteRows;
 
 #pragma code-name (push, "BANKRAM01")
+#pragma rodata-name (push, "RODATA")
+static const char messageText[] = "PERSISTENT\012OVERLAY";
+static const char paletteText[] = "A\012B\012C\012D";
+#pragma rodata-name (pop)
+
 static byte allocationBaseline[ALLOCATION_ARRAY_SIZE];
+static byte paletteTextCopy[sizeof(paletteText)];
 static byte* heldAllocations[ALLOCATION_ARRAY_SIZE];
 static byte heldBanks[ALLOCATION_ARRAY_SIZE];
 #define TEST_MAP_FIRST_ROW 10
@@ -38,7 +46,7 @@ static void seedPersistentText(void)
 	byte row, column;
 	unsigned long address;
 
-	for (row = TEST_MAP_FIRST_ROW; row <= TEST_MAP_LAST_ROW; ++row)
+	for (row = TEST_MAP_FIRST_ROW - 1; row <= TEST_MAP_LAST_ROW + 1; ++row)
 	{
 		for (column = 0; column < TILE_LAYER_WIDTH; ++column)
 		{
@@ -49,22 +57,61 @@ static void seedPersistentText(void)
 	}
 }
 
-static void checkPersistentText(void)
+static byte persistentTextMatches(void)
 {
 	byte row, column;
 	unsigned long address;
 
-	for (row = TEST_MAP_FIRST_ROW; row <= TEST_MAP_LAST_ROW; ++row)
+	for (row = TEST_MAP_FIRST_ROW - 1; row <= TEST_MAP_LAST_ROW + 1; ++row)
 	{
 		for (column = 0; column < TILE_LAYER_WIDTH; ++column)
 		{
 			address = tileMapAddress(row, column);
-			auditCheck(testPeek(address) == persistentCharacter(row, column),
-				"TEMPORARY MESSAGE BOX CLEARED PERSISTENT TEXT");
-			auditCheck(testPeek(address + 1) == persistentPalette(row, column),
-				"TEMPORARY MESSAGE BOX CHANGED PERSISTENT PALETTE");
+			if (testPeek(address) != persistentCharacter(row, column) ||
+				testPeek(address + 1) != persistentPalette(row, column)) return FALSE;
 		}
 	}
+	return TRUE;
+}
+
+static void checkPersistentText(void)
+{
+	auditCheck(persistentTextMatches(), "TEMPORARY MESSAGE BOX CHANGED PERSISTENT TEXT OR PALETTE");
+}
+
+static void unboxedPaletteSaveUnder(byte* message, byte bank)
+{
+	byte* savedText = 0;
+	byte savedBank = 0, firstRow = 0, rows = 0;
+	byte displayed, restored, previousActive = inventoryActive, paletteRows = 0;
+	byte lastPalette, nextPalette;
+
+	seedPersistentText();
+	inventoryActive = TRUE;
+	displayed = b3DisplayMessageBoxWithSaveUnder((char*)message, bank, AUTO_CALC_ROW,
+		AUTO_CALC_COLUMN, TEXTBOX_PALETTE_NUMBER, 0, TRUE, &savedText, &savedBank,
+		&firstRow, &rows);
+	memCpyBanked(&paletteRows, (byte*)&b3PaletteRows, TEXT_CODE_BANK, 1);
+	memCpyBanked(paletteTextCopy, (byte*)b3TextBuffer1, TEXT_CODE_BANK, sizeof(paletteTextCopy));
+	lastPalette = testPeek(tileMapAddress(TEST_MAP_LAST_ROW, TILE_LAYER_WIDTH - 1) + 1);
+	nextPalette = testPeek(tileMapAddress(TEST_MAP_LAST_ROW + 1, 0) + 1);
+	auditCheck(!memcmp(paletteTextCopy, paletteText, sizeof(paletteTextCopy)),
+		"FOUR-LINE SAVE-UNDER TEXT DID NOT REACH THE PRODUCTION TEXT BUFFER");
+	auditCheck(lastPalette == (byte)(TEXTBOX_PALETTE_NUMBER << 4),
+		"FOUR-LINE PALETTE WRITE DID NOT REACH THE LAST SAVED ROW");
+	auditCheck(nextPalette == persistentPalette(TEST_MAP_LAST_ROW + 1, 0),
+		"FOUR-LINE PALETTE WRITE CROSSED ITS EXTRA-ROW BOUNDARY");
+	if (displayed && savedText) b3CopyTextRows(savedText, savedBank, firstRow, rows, TRUE);
+	if (savedText) auditCheck(b10BankedDealloc(savedText, savedBank),
+		"UNBOXED PALETTE SAVE-UNDER ALLOCATION RELEASE FAILED");
+	inventoryActive = previousActive;
+	restored = persistentTextMatches();
+	if (!restored) seedPersistentText();
+	auditCheck(displayed, "UNBOXED FOUR-LINE MESSAGE WAS REJECTED");
+	auditCheck(paletteRows == 4, "UNBOXED FOUR-LINE PALETTE ROW COUNT WAS LOST");
+	auditCheck(firstRow == TEST_MAP_FIRST_ROW, "UNBOXED FOUR-LINE MESSAGE USED THE WRONG SAVE-UNDER ROW");
+	auditCheck(rows == 8, "UNBOXED FOUR-LINE PALETTE WRITE DID NOT RESERVE EIGHT ROWS");
+	auditCheck(restored, "UNBOXED FOUR-LINE PALETTE WRITE ESCAPED ITS SAVE-UNDER");
 }
 
 static void showAndClose(byte* message, byte bank, byte closeKey)
@@ -120,18 +167,27 @@ static void allocationExhaustion(byte* message, byte bank)
 
 void textoverlayAuditCases(void)
 {
-	static const char messageText[] = "PERSISTENT\nOVERLAY";
-	byte bank, currentAllocations[ALLOCATION_ARRAY_SIZE];
+	byte bank, paletteBank, currentAllocations[ALLOCATION_ARRAY_SIZE];
 	byte* message = b10BankedAlloc(sizeof(messageText), &bank);
+	byte* paletteMessage = b10BankedAlloc(sizeof(paletteText), &paletteBank);
 
 	auditCheck(message != 0, "TEXT OVERLAY MESSAGE ALLOCATION FAILED");
-	memCpyBanked(message, (byte*)messageText, bank, sizeof(messageText));
+	auditCheck(paletteMessage != 0, "PALETTE TEXT OVERLAY MESSAGE ALLOCATION FAILED");
+	auditCheck(paletteText[1] == NEW_LINE && paletteText[3] == NEW_LINE &&
+		paletteText[5] == NEW_LINE && paletteText[7] == '\0',
+		"FOUR-LINE SAVE-UNDER FIXTURE DOES NOT CONTAIN THREE NEWLINES");
+	memCpyBankedBetween(message, bank, (byte*)messageText, 0x01, sizeof(messageText));
+	memCpyBankedBetween(paletteMessage, paletteBank, (byte*)paletteText, 0x01, sizeof(paletteText));
+	memCpyBanked(paletteTextCopy, paletteMessage, paletteBank, sizeof(paletteTextCopy));
+	auditCheck(!memcmp(paletteTextCopy, paletteText, sizeof(paletteTextCopy)),
+		"FOUR-LINE SAVE-UNDER FIXTURE COPY IS INVALID");
 	seedPersistentText();
 	memCpyBanked(allocationBaseline, allocationArray, MEMORY_MANAGEMENT_BANK,
 		ALLOCATION_ARRAY_SIZE);
 
 	showAndClose(message, bank, KEY_ENTER);
 	showAndClose(message, bank, KEY_ESC);
+	unboxedPaletteSaveUnder(paletteMessage, paletteBank);
 	memCpyBanked(currentAllocations, allocationArray, MEMORY_MANAGEMENT_BANK,
 		ALLOCATION_ARRAY_SIZE);
 	auditCheck(!memcmp(allocationBaseline, currentAllocations, sizeof(currentAllocations)),
@@ -143,6 +199,7 @@ void textoverlayAuditCases(void)
 	auditCheck(!memcmp(allocationBaseline, currentAllocations, sizeof(currentAllocations)),
 		"TEMPORARY MESSAGE BOX EXHAUSTION LEAKED BANKED RAM");
 	auditCheck(b10BankedDealloc(message, bank), "TEXT OVERLAY MESSAGE RELEASE FAILED");
+	auditCheck(b10BankedDealloc(paletteMessage, paletteBank), "PALETTE TEXT OVERLAY MESSAGE RELEASE FAILED");
 	auditOutput("TEXT OVERLAY AUDIT PASS\n");
 }
 #pragma code-name (pop)

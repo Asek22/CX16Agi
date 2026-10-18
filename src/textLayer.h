@@ -66,6 +66,10 @@ extern byte b3LastBoxStartLine;
 void b3InitLayer1Mapbase();
 byte b3DisplayManuallyWrappedMessageBox(char* message, byte messageBank, byte row, byte col, byte paletteNumber, byte boxWidth, byte boxHeight);
 void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, byte paletteNumber, byte boxWidth, boolean wrap);
+boolean b3DisplayMessageBoxWithSaveUnder(char* message, byte messageBank, byte row, byte col,
+	byte paletteNumber, byte boxWidth, boolean wrap, byte** savedText, byte* savedBank,
+	byte* firstMapRow, byte* savedRows);
+void b3CopyTextRows(byte* saved, byte bank, byte firstRow, byte rows, byte restore);
 void b3FillChar(byte startLine, byte endLine, byte paletteNumber, byte charToFill);
 void b3ClearLastPlacedText();
 byte b3SetTextColor(byte foreground, byte background);

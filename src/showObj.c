@@ -1,5 +1,6 @@
 #include "showObj.h"
 #include "inventory.h"
+#include "textLayer.h"
 #include <cbm.h>
 #include <string.h>
 
@@ -7,6 +8,13 @@ extern unsigned long inventoryAddress;
 extern byte inventoryBuffer[], inventoryLength, inventoryWrite;
 extern void inventoryTransfer(void);
 extern byte inventoryMouseButtons(void);
+extern byte b3LastBoxLines, b3LastBoxStartLine, b3PaletteRows, b3PaletteNumber;
+extern long b3PaletteAddress;
+extern char* currentTextBuffer;
+extern unsigned long displayTextAddressToCopyTo;
+#ifdef INVENTORY_TEST_SHOWOBJ
+extern byte showObjTestSavedRows, showObjTestSavedBank;
+#endif
 
 static void overlayTransfer(unsigned long address, byte length, byte write)
 {
@@ -20,19 +28,6 @@ static void overlayFrame(void)
    volatile unsigned* counter = &vSyncCounter;
    unsigned before = *counter;
    while (*counter == before) {}
-}
-static void textOverlay(byte* saved, byte bank, byte restore)
-{
-   unsigned offset;
-   for (offset = 0; offset < 4096; offset += 64) {
-      if (restore) {
-         memCpyBanked(inventoryBuffer, saved+offset, bank, 64);
-         overlayTransfer(MAPBASE+(unsigned long)offset, 64, TRUE);
-      } else {
-         overlayTransfer(MAPBASE+(unsigned long)offset, 64, FALSE);
-         memCpyBanked(saved+offset, inventoryBuffer, bank, 64);
-      }
-   }
 }
 static byte overlayVideo(byte value, byte restore)
 {
@@ -49,6 +44,22 @@ static byte overlayVideo(byte value, byte restore)
    return previous;
 }
 #pragma code-name (push, "BANKRAM11")
+static void overlayTextContext(byte* state, byte restore)
+{
+   if (restore) {
+      memCpyBanked(&b3LastBoxLines, state, TEXT_CODE_BANK, 2);
+      /* irqAsm.s lays palette address, row count, and number adjacently. */
+      memCpyBanked((byte*)&b3PaletteAddress, state + 2, TEXT_CODE_BANK, 6);
+      memCpyBanked((byte*)&displayTextAddressToCopyTo, state + 8, TEXT_CODE_BANK, 4);
+      memCpyBanked((byte*)&currentTextBuffer, state + 12, TEXT_CODE_BANK, 2);
+   } else {
+      memCpyBanked(state, &b3LastBoxLines, TEXT_CODE_BANK, 2);
+      memCpyBanked(state + 2, (byte*)&b3PaletteAddress, TEXT_CODE_BANK, 6);
+      memCpyBanked(state + 8, (byte*)&displayTextAddressToCopyTo, TEXT_CODE_BANK, 4);
+      memCpyBanked(state + 12, (byte*)&currentTextBuffer, TEXT_CODE_BANK, 2);
+   }
+}
+
 void b11ShowObj(byte objNum)
 {
    View localView;
@@ -57,7 +68,7 @@ void b11ShowObj(byte objNum)
    SpriteAttributeSize spriteAttributeWidth, spriteAttributeHeight;
    SpriteAllocationSize spriteAllocationWidth, spriteAllocationHeight;
    VeraSpriteAddress spriteAddress;
-   byte savedAttributes[8], *savedText, textBank;
+   byte savedAttributes[8], savedTextContext[14], *savedText = 0, textBank, firstTextRow, savedTextRows;
    byte previousActive, previousVideo, wasLoaded, buttons;
    unsigned shifted, selectedPixelWidth;
    getLoadedView(&localView, objNum);
@@ -81,11 +92,6 @@ void b11ShowObj(byte objNum)
       localCel.height > SPR_SIZE_8 ? SPR_ATTR_16 : SPR_ATTR_8;
    spriteAllocationWidth = bEGetSpriteAllocateSize(spriteAttributeWidth);
    spriteAllocationHeight = bEGetSpriteAllocateSize(spriteAttributeHeight);
-   savedText = b10TryBankedAlloc(4096, &textBank);
-   if (!savedText) {
-      if (!wasLoaded) b9DiscardView(objNum);
-      return;
-   }
    spriteAddress = bDFindFreeVramBlock(spriteAllocationWidth, spriteAllocationHeight);
 
    if(spriteAddress)
@@ -94,18 +100,25 @@ void b11ShowObj(byte objNum)
     inventoryActive = TRUE;
     overlayTransfer(0x1fff8UL, 8, FALSE);
     memcpy(savedAttributes, inventoryBuffer, 8);
-    textOverlay(savedText, textBank, FALSE);
     asm("sei");
     SET_VERA_ADDRESS_ZP(spriteAddress, VERA_ADDRESS, VERA_ADDRESS_HIGH);
     bEClearVeraSprite(spriteAttributeWidth, spriteAttributeHeight);
     REENABLE_INTERRUPTS();
 
     b9CelToVera(&localCel, localLoop.celsBank, spriteAddress, MAX_PRIORITY, spriteAllocationWidth / 2, 0, 0, MAX_PRIORITY);
-    /* The text renderer uses IRQ commands; allow it to finish before freezing
-     * the modal display. Slot publication itself uses the protected transfer. */
+    /* DISPLAY_TEXT still runs with the modal flag set; suppress menu/status IRQ painting. */
     if (localView.description) {
-       inventoryActive = FALSE;
-       b3DisplayMessageBox(localView.description, localView.codeBlockBank,14, AUTO_CALC_COLUMN, TEXTBOX_PALETTE_NUMBER, DEFAULT_BOX_WIDTH, TRUE);
+       overlayTextContext(savedTextContext, FALSE);
+       if (!b3DisplayMessageBoxWithSaveUnder(localView.description, localView.codeBlockBank,
+          14, AUTO_CALC_COLUMN, TEXTBOX_PALETTE_NUMBER, DEFAULT_BOX_WIDTH, TRUE,
+          &savedText, &textBank, &firstTextRow, &savedTextRows)) {
+          inventoryActive = previousActive;
+          overlayTextContext(savedTextContext, TRUE);
+          if (savedText) b10BankedDealloc(savedText, textBank);
+          bDDeleteAllocation(spriteAddress, spriteAllocationWidth, spriteAllocationHeight);
+          if (!wasLoaded) b9DiscardView(objNum);
+          return;
+       }
        inventoryActive = TRUE;
     }
     shifted = spriteAddress >> 5;
@@ -132,11 +145,18 @@ void b11ShowObj(byte objNum)
     overlayTransfer(0x1fff8UL, 8, TRUE);
     overlayFrame();
     bDDeleteAllocation(spriteAddress, spriteAllocationWidth, spriteAllocationHeight);
-    textOverlay(savedText, textBank, TRUE);
+    if (savedText) {
+#ifdef INVENTORY_TEST_SHOWOBJ
+       showObjTestSavedRows = savedTextRows;
+       showObjTestSavedBank = firstTextRow;
+#endif
+       b3CopyTextRows(savedText, textBank, firstTextRow, savedTextRows, TRUE);
+       b10BankedDealloc(savedText, textBank);
+    }
+    if (localView.description) overlayTextContext(savedTextContext, TRUE);
     overlayVideo(previousVideo, TRUE);
     inventoryActive = previousActive;
    }
-   b10BankedDealloc(savedText, textBank);
    if (!wasLoaded) b9DiscardView(objNum);
 }
 

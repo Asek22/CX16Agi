@@ -427,7 +427,7 @@ static void b3TextMapTransfer(unsigned long address, byte write)
 	inventoryTransfer();
 }
 
-static void b3CopyTextRows(byte* saved, byte bank, byte firstRow, byte rows, byte restore)
+void b3CopyTextRows(byte* saved, byte bank, byte firstRow, byte rows, byte restore)
 {
 	byte row, column;
 	unsigned int savedOffset;
@@ -461,8 +461,10 @@ static boolean b3DisplayMessageBoxInternal(char* message, byte messageBank, byte
 	int i;
 	size_t messageSize = strLenBanked(message, messageBank) + 1;
 	long displayAddressCopyPaletteTo;
+	char* previousTextBuffer = currentTextBuffer;
 	byte textWidth;
 	byte numberOfLines = 1, maxWidth;
+	unsigned int rowsToSave;
 	size_t maxMessageSize;
 	unsigned int mapRow;
 
@@ -557,20 +559,31 @@ static boolean b3DisplayMessageBoxInternal(char* message, byte messageBank, byte
 			col = MAX_CHAR_ACROSS / 2 - boxWidth / 2;
 		}
 
+		if (savedText)
+		{
+			mapRow = FIRST_ROW + (unsigned int)b3LastBoxStartLine - 1;
+			rowsToSave = numberOfLines + (!(numberOfLines & 3) ? 4 : 0);
+			if (*saveRows > rowsToSave) rowsToSave = *saveRows;
+			if (b3LastBoxLines > rowsToSave) rowsToSave = b3LastBoxLines;
+			if (!rowsToSave || mapRow + rowsToSave > TILE_LAYER_HEIGHT)
+			{
+				currentTextBuffer = previousTextBuffer;
+				return FALSE;
+			}
+			*saveRows = (byte)rowsToSave;
+			*savedText = b10TryBankedAlloc((int)rowsToSave * TILE_LAYER_BYTES_PER_ROW, savedBank);
+			if (!*savedText)
+			{
+				currentTextBuffer = previousTextBuffer;
+				return FALSE;
+			}
+			b3CopyTextRows(*savedText, *savedBank, mapRow, *saveRows, FALSE);
+		}
+
 		displayTextAddressToCopyTo = MAPBASE + (FIRST_ROW + b3LastBoxStartLine - 1) * TILE_LAYER_BYTES_PER_ROW + col * BYTES_PER_CELL;
 		b3PaletteAddress = MAPBASE + (FIRST_ROW + b3LastBoxStartLine - 1) * TILE_LAYER_BYTES_PER_ROW + 1; //We will set the same palette for the whole row
 		b3PaletteRows = numberOfLines;
 		b3PaletteNumber = paletteNumber;
-
-		if (savedText)
-		{
-			mapRow = FIRST_ROW + (unsigned int)b3LastBoxStartLine - 1;
-			if (b3LastBoxLines > *saveRows) *saveRows = b3LastBoxLines;
-			if (!*saveRows || mapRow + *saveRows > TILE_LAYER_HEIGHT) return FALSE;
-			*savedText = b10TryBankedAlloc((int)*saveRows * TILE_LAYER_BYTES_PER_ROW, savedBank);
-			if (!*savedText) return FALSE;
-			b3CopyTextRows(*savedText, *savedBank, mapRow, *saveRows, FALSE);
-		}
 
 		b6SetAndWaitForIrqState(DISPLAY_TEXT);
 	}
@@ -580,6 +593,32 @@ static boolean b3DisplayMessageBoxInternal(char* message, byte messageBank, byte
 void b3DisplayMessageBox(char* message, byte messageBank, byte row, byte col, byte paletteNumber, byte boxWidth, boolean wrap)
 {
 	b3DisplayMessageBoxInternal(message, messageBank, row, col, paletteNumber, boxWidth, wrap, 0, 0, 0);
+}
+
+boolean b3DisplayMessageBoxWithSaveUnder(char* message, byte messageBank, byte row, byte col,
+	byte paletteNumber, byte boxWidth, boolean wrap, byte** savedText, byte* savedBank,
+	byte* firstMapRow, byte* savedRows)
+{
+	byte oldBoxLines = b3LastBoxLines, oldBoxStartLine = b3LastBoxStartLine;
+	byte rows = 0;
+
+	if (!savedText || !savedBank || !firstMapRow || !savedRows) return FALSE;
+	*savedText = 0;
+	*firstMapRow = 0;
+	*savedRows = 0;
+	if (!b3DisplayMessageBoxInternal(message, messageBank, row, col, paletteNumber, boxWidth, wrap,
+		&rows, savedText, savedBank))
+	{
+		b3LastBoxLines = oldBoxLines;
+		b3LastBoxStartLine = oldBoxStartLine;
+		return FALSE;
+	}
+	if (*savedText)
+	{
+		*firstMapRow = FIRST_ROW + b3LastBoxStartLine - 1;
+		*savedRows = rows;
+	}
+	return TRUE;
 }
 
 

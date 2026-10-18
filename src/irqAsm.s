@@ -320,7 +320,9 @@ LAYER_0_SPRITES_DISABLE_1_ENABLE = $21
 ;3 Return To Normal Display (Both layers enabled)
 ;4 Display Text (A command to display text, the text to display is stored in the buffer pointed to by _currentTextBuffer)
 
-sendIrqCommand: .byte $0
+_sendIrqCommand: .byte $0
+sendIrqCommand = _sendIrqCommand
+.export _sendIrqCommand
 
 ;As above except it will never change to 0
 currentIrqState: .byte $0
@@ -347,6 +349,9 @@ sta RAM_BANK
 jsr bBSoundHandler
 lda _inventoryActive
 beq :+
+lda sendIrqCommand
+cmp #IRQ_CMD_DISPLAY_TEXT
+beq @sendIrqCommand
 jmp @vSyncCounter
 :
 
