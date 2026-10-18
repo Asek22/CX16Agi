@@ -2115,7 +2115,7 @@ b9UpdateObjects:
         jsr b9AgiBlitLoop               ; Draw all objects in final sorted order
 
 @exit:
-        JSRFAR _bETerminateSpriteBuffer, SPRITE_UPDATES_BANK
+        TRAMPOLINE #SPRITE_UPDATES_BANK, _bETerminateSpriteBuffer
         REENABLE_INTERRUPTS             ; Re-enable interrupts
         rts
 

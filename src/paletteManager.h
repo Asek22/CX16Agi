@@ -22,8 +22,8 @@ typedef enum
 	FailToAllocate = 2
 } PaletteGetResult;
 
-#pragma wrapped-call (push, trampoline, PALETTE_MANAGER_BANK)
 byte bFInitPaletteManager();
+#pragma wrapped-call (push, trampoline, PALETTE_MANAGER_BANK)
 byte bFGetPalette(int id, PaletteGetResult* result);
 #pragma wrapped-call (pop)
 

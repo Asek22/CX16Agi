@@ -26,12 +26,17 @@
 #include "loadingScreen.h"
 #include "structMetadata.h"
 #include "parser.h"
+
 #include "graphics.h"
 #include "random.h"
 #include "sound.h"
 #include "spriteAllocator.h"
 #include "menu.h"
 //#include "sound.h"
+
+#pragma wrapped-call (push, trampoline, HELPERS_BANK)
+extern void memsetBanked(void* _Dst, int _Val, size_t _Size, byte bank);
+#pragma wrapped-call (pop)
 
 boolean hasEnteredNewRoom = FALSE, exitAllLogics = FALSE;
 byte* var = (byte*)&GOLDEN_RAM[VARS_AREA_START];
@@ -42,7 +47,6 @@ byte horizon;
 #define  PROGRAM_CONTROL  1
 #define DEBUG 1
 //#define VERBOSE
-
 volatile int hund;                 /* Used for interpreters clock */
 
 int controlMode = PLAYER_CONTROL;    /* player.control or program.control */
@@ -107,7 +111,6 @@ void b6NewRoom()
     b6AdjustEgoPosition();
 
     b6DiscardLogicFile(var[0]);
-
     lastRoomLoaded = b4GetLastRoomLoaded();
 
     if(lastRoomLoaded > 0) //Script room zero we never unload
@@ -329,6 +332,13 @@ void b6Initialise()
 extern void loadInitBankAndInitMemory();
 
 byte mainLoopCounter = 0;
+void b6RunInterpreterTick()
+{
+	b6Interpret();
+	mainLoopCounter++;
+	b6CheckTimer();
+}
+
 void main()
 {
     int ret, oldCount = 0;
@@ -363,11 +373,8 @@ void main()
 #ifdef VERBOSE
             printf("Interpret Runs\n");
 #endif // VERBOSE
-            b6Interpret();
             // runIncrementalGarbageCollector();
-            mainLoopCounter++;
-
-            b6CheckTimer();
+            b6RunInterpreterTick();
         }
     }
 

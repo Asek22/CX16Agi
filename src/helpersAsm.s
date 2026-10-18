@@ -158,6 +158,7 @@ rts
 .export _trampoline
 .import popa
 .importzp tmp4
+.importzp ptr4
 .import callptr4
 
 .macro REFRESH_BUFFER_ABS BUFFER_POINTER, BUFFER_STATUS, ABS_BUFFER_STATUS
@@ -274,7 +275,6 @@ rts
 ;Assumes args are in a/x and C stack
 _trampoline:
 sta @aVal ;Preserve a argument
-
 lda RAM_BANK
 pha
 

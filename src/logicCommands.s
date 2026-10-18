@@ -1338,6 +1338,9 @@ bra @start
 @var1: .byte $0
 @start:
 GET_VAR_OR_FLAG VARS_AREA_START_GOLDEN_OFFSET, @var1
+lda @var1
+sta _newRoomNum
+stz _newRoomNum + 1
 bra switchToNewRoom
 
 .segment "BANKRAM02"
@@ -1833,7 +1836,6 @@ b1Equaln:
     jmp returnFromOpCodeTrue
 
 b1Equalv:
-
     .ifdef DEBUG
     LOAD_CODE_WIN_CODE
     sta _logDebugVal1

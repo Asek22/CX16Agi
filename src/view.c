@@ -2260,6 +2260,13 @@ void bAResetViewtabs(boolean fullReset)
 	}
 }
 
+#pragma wrapped-call (push, trampoline, SPRITE_METADATA_BANK)
+extern void bEResetSpritesUpdatedBuffer(void);
+extern void bEResetBackBufferRetirements(void);
+extern void bEResetViewTableMetadata(void);
+extern void bEResetSpritePointers(void);
+#pragma wrapped-call (pop)
+
 void bAResetSpriteMemory(boolean clearBuffer)
 {
 	(void)clearBuffer;
@@ -2277,8 +2284,10 @@ void bAResetSpriteMemory(boolean clearBuffer)
 void bAReset()
 {
 	bAResetSpriteMemory(TRUE);
+	asm("php");
+	asm("sei");
 	bFInitPaletteManager();
-	
+	asm("plp");
 	bAResetViewtabs(FALSE);
 }
 

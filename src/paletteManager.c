@@ -1,4 +1,9 @@
 #include "paletteManager.h"
+#include "helpers.h"
+
+#pragma wrapped-call (push, trampoline, HELPERS_BANK)
+extern void memsetBanked(void* _Dst, int _Val, size_t _Size, byte bank);
+#pragma wrapped-call (pop)
 
 #pragma bss-name (push, "BANKRAM0F")
 int allocatedPaletteOwners[NO_MANAGED_PALETTES];
@@ -7,14 +12,16 @@ byte palettesAllocated;
 
 //#define VERBOSE_PALETTE_MANAGER
 
-#pragma code-name (push, "BANKRAM0F")
+#pragma code-name (push, "CODE")
 byte bFInitPaletteManager()
 {
-	memset(allocatedPaletteOwners, 0, sizeof(allocatedPaletteOwners));
-	palettesAllocated = 0;
+	memsetBanked((byte*)allocatedPaletteOwners, 0, sizeof(allocatedPaletteOwners), PALETTE_MANAGER_BANK);
+	memsetBanked((byte*)&palettesAllocated, 0, sizeof(palettesAllocated), PALETTE_MANAGER_BANK);
 	return 0;
 }
+#pragma code-name (pop)
 
+#pragma code-name (push, "BANKRAM0F")
 byte bFGetPalette(int id, PaletteGetResult* result)
 {
 	byte i;
