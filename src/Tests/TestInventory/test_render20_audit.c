@@ -4,11 +4,13 @@
 #include "../../picture.h"
 #include "../../view.h"
 #include "../../loadingScreen.h"
+#include "../../textLayer.h"
 #include <string.h>
 extern int allocatedPaletteOwners[];
 static byte rowBytes[65];
 extern byte patCode, patNum, picColour;
 extern boolean picDrawEnabled, priDrawEnabled;
+static void textPaletteKeyCases(void);
 #pragma wrapped-call (push, trampoline, SPRITE_UPDATED_BANK)
 extern void bESplitCel(Cel* cel);
 extern void bECellToVeraBulk(byte width, byte height, byte count, byte slots, byte x, byte y, byte priority);
@@ -211,10 +213,61 @@ static void paletteCases(void)
     auditCheck(slot==0 && result==FailToAllocate,"full palette pool admitted a new owner");
     auditCheck(RAM_BANK==bank,"palette lookup changed caller bank");
     bFInitPaletteManager();
+    textPaletteKeyCases();
     memCpyBanked((byte*)owners,(byte*)allocatedPaletteOwners,PALETTE_MANAGER_BANK,sizeof(owners));
     for (i=0; i<NO_MANAGED_PALETTES; ++i)
         auditCheck(owners[i]==0,"palette reset retained old owner words");
 }
+#pragma code-name (push, "CODE")
+#pragma rodata-name (push, "CODE")
+static void textPaletteKeyCases(void)
+{
+    byte savedSource[6], savedFirst[4], savedSecond[4];
+    byte oldForeground, oldBackground;
+    byte firstSlot, secondSlot, repeatedSlot, i;
+    unsigned long firstAddress = PALETTE_START + BASE_MANAGED_PALETTE * 32UL;
+    unsigned long secondAddress = firstAddress + 32;
+
+    for (i=0; i<6; ++i) savedSource[i]=testPeek(PALETTE_START+i);
+    for (i=0; i<4; ++i) {
+        savedFirst[i]=testPeek(firstAddress+2+i);
+        savedSecond[i]=testPeek(secondAddress+2+i);
+    }
+    memCpyBanked(&oldForeground, &b3CurrentForegroundColour, TEXT_CODE_BANK, 1);
+    memCpyBanked(&oldBackground, &b3CurrentBackgroundColour, TEXT_CODE_BANK, 1);
+
+    testPoke(0x11, PALETTE_START);     testPoke(0x02, PALETTE_START+1);
+    testPoke(0x33, PALETTE_START+2);   testPoke(0x04, PALETTE_START+3);
+    testPoke(0x55, PALETTE_START+4);   testPoke(0x06, PALETTE_START+5);
+    bFInitPaletteManager();
+    firstSlot=b3SetTextColor(1,1);
+    secondSlot=b3SetTextColor(2,0);
+    auditCheck(firstSlot==BASE_MANAGED_PALETTE &&
+               secondSlot==BASE_MANAGED_PALETTE+1,
+               "distinct text color pairs shared a palette owner");
+    auditCheck(testPeek(firstAddress+2)==0x33 && testPeek(firstAddress+3)==0x04 &&
+               testPeek(firstAddress+4)==0x33 && testPeek(firstAddress+5)==0x04,
+               "first text palette did not receive its foreground and background colors");
+    auditCheck(testPeek(secondAddress+2)==0x55 && testPeek(secondAddress+3)==0x06 &&
+               testPeek(secondAddress+4)==0x11 && testPeek(secondAddress+5)==0x02,
+               "second text palette did not receive its foreground and background colors");
+    repeatedSlot=b3SetTextColor(1,1);
+    auditCheck(repeatedSlot==firstSlot &&
+               testPeek(firstAddress+2)==0x33 && testPeek(firstAddress+3)==0x04 &&
+               testPeek(firstAddress+4)==0x33 && testPeek(firstAddress+5)==0x04,
+               "text palette cache hit changed its previously published colors");
+
+    for (i=0; i<6; ++i) testPoke(savedSource[i], PALETTE_START+i);
+    for (i=0; i<4; ++i) {
+        testPoke(savedFirst[i], firstAddress+2+i);
+        testPoke(savedSecond[i], secondAddress+2+i);
+    }
+    memCpyBanked(&b3CurrentForegroundColour, &oldForeground, TEXT_CODE_BANK, 1);
+    memCpyBanked(&b3CurrentBackgroundColour, &oldBackground, TEXT_CODE_BANK, 1);
+    bFInitPaletteManager();
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
 #pragma code-name (push, "BANKRAM01")
 #pragma rodata-name (push, "BANKRAM01")
 static void addToPicTopClipCase(void)

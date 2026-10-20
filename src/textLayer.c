@@ -659,7 +659,7 @@ byte b3DisplayManuallyWrappedMessageBox(char* message, byte messageBank, byte ro
 
 byte b3SetTextColor(byte foreground, byte background)
 {
-	int textId = (int)foreground << 4 + background;
+	int textId = ((int)foreground << 4) | background;
 	unsigned int foreColorBytes, backColorBytes;
 	long paletteWriteAddress;
 	byte paletteSlot;
