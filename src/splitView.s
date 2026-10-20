@@ -190,10 +190,10 @@ sta NO_SEGMENTS
 @divideMemoryBySegments: ;Now we know width and height we can divide the memory by the number of segments to get the segment size
 sec
 lda NO_BYTES_SIZE ;We don't count the part of the memory reserved for the pointers in the segment division
-sbc POINTER_TO_SPLIT_DATA_SIZE
+sbc #<POINTER_TO_SPLIT_DATA_SIZE
 tay ;Store the low byte in y as we will need this when we call divide, but we need a to do the high byte of the subtraction
 lda NO_BYTES_SIZE + 1
-sbc POINTER_TO_SPLIT_DATA_SIZE + 1
+sbc #>POINTER_TO_SPLIT_DATA_SIZE
 tax ;The high byte must be in x prior to the call to the division function
 tya ;The low byte must be in a prior to the call to the division function
 jsr pushax
