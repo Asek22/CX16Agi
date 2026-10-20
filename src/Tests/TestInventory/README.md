@@ -8,6 +8,25 @@ The initial regression failed with `INVENTORY FAIL: STATUS MUST SELECT THE HIGHL
 
 Built-in art resolves numeric OBJECT entries by their banked names; it does not assume a particular game's object ordering or substitute in-world cels. Artwork is published only after upload, and close restores attributes and waits for a VSYNC before releasing its bitmap.
 
+## Current render and script batch
+
+`views` and `viewaliases` cover VIEW RLE rejection before assembly rendering plus valid mirrored, transparent and aliased data. The 12-loop/96-cel workload measures 3,818,905 average and 3,826,012 worst cycles, against its retained 18,261,833 average and 18,266,971 worst baseline (`obj/cx16/tests/inventory/root-views-review.log`). Small VIEWs also load with the medium and large allocation pools exhausted; validation allocates its structure map according to resource size.
+
+`showobj` and `textoverlay` check inspect rendering and exact save-under restoration, including palette, text, video state and allocation failure. The retained short-description workload saves/restores 1,280 bytes in 65,681 cycles, versus 8,192 bytes and 430,135 cycles before row-limited transfers (`root-showobj-review.log`). `scriptstream` and `scriptstrings` exercise interpreter branches and string paths, including a stale high byte corrupting a GOTO displacement.
+
+`fullframe` measures the production interpreter tick with active sound, mirrored and split pixels, and IRQ gaps: 24,717,831 average and 24,718,363 worst cycles against its 24,807,573 baseline (`root-fullframe-review.log`). The largest observed VSYNC entry gap is 134,451 cycles; the interpreter/picture phase dominates this repeatable workload. `integration` runs 20 generated production-room sequences through room and animation ticks, inventory inspect, dialog and sound replacement, checking warm RAM/VRAM ownership; its 40 measured ticks average 3,450,161 and peak at 3,452,998 cycles. These native generated regressions do not replace a manual KQ1 playthrough.
+
+Final verification passed all 30 inventory images (`obj/cx16/tests/inventory/root-full-matrix-complete.log`), the banked-copy suite and the product build. Test helpers were relocated within the existing fixed-memory and bank limits; no assertions or product linker limits were relaxed. Both suites also cleaned their unique fixtures after deliberately failing compiler invocations. Final inspection found no `case.*` directories or leftover runtime inputs.
+
+Rerun a focused case by replacing `fullframe` in this command with `views`, `viewaliases`, `showobj`, `textoverlay`, `scriptstream`, `scriptstrings`, or `integration`:
+
+```sh
+make test-inventory INVENTORY_TEST_CASE=fullframe \
+  INVENTORY_TEST_CC=/home/arbitrator/Documents/1-Projects/CX16Agi/.tools/cc65-latest/bin/cl65 \
+  INVENTORY_TEST_EMU=/home/arbitrator/Documents/1-Projects/CX16Agi-NEEDS-MERGING/cx16emu/x16emu \
+  INVENTORY_TEST_ROM=/home/arbitrator/Documents/1-Projects/CX16Agi-NEEDS-MERGING/cx16emu/rom.bin
+```
+
 Five correctness/performance audit rounds:
 
 | Round | Durable workload / result |
@@ -24,7 +43,7 @@ Round 5 also inspected KQ1's actual OBJECT names and reproduced missing bucket a
 
 The sibling resource audit uses the same permanent C suite and production bank map. `make test-inventory` now runs the original inventory cases and each `test_*_audit.c` group in separate native images. Each image has its own unique fixture directory under the same output root and cleans it on success, failure, timeout and interruption. Separate images avoid exhausting the target's limited low RAM with unrelated test buffers. The emulator result is printed even on timeout before cleanup.
 
-For a focused rerun, add `INVENTORY_TEST_CASE=sound`, `metadata`, `allocator`, `input`, `views`, or `showobj` to the command above. Each group still runs the original inventory pixel, ownership and performance checks first.
+For a focused rerun, add `INVENTORY_TEST_CASE=sound`, `metadata`, `allocator`, `input`, `views`, `viewaliases`, `showobj`, `textoverlay`, `fullframe`, or `integration` to the command above. Each group still runs the original inventory pixel, ownership and performance checks first.
 
 | Group | Reproduced failure and resulting behavior |
 | --- | --- |
@@ -34,6 +53,9 @@ For a focused rerun, add `INVENTORY_TEST_CASE=sound`, `metadata`, `allocator`, `
 | Input IRQ | The sound handler left X at eight, so the hidden input line retained its final eight characters. A real VSYNC now clears all 40 cells while preserving the adjacent tile. |
 | View headers | The loader cached pointer-to-pointer bytes, skipped offsets for eight through fourteen loops, and maximum-size headers overwrote the neighboring buffer and sprite-transfer code. Native cases check cached structs, all offsets, 255-loop and 255-cel bounds, and executable-code canaries. |
 | Legacy object overlay | The viewer discarded an already-loaded view, left attributes referencing released VRAM, and erased existing text. Native cases check rendered RLE pixels across distinct banks, a visible frame and consumed close event, full text/attribute/video restoration, retained caller ownership, and RAM/VRAM exhaustion. Debug STP instructions were removed from the legacy path. |
+| VIEW RLE bounds and aliases | Before assembly rendering, the loader now rejects truncated rows, missing terminators, zero runs, over-wide rows, overlapping structure headers, and data beyond the owned resource bank. Tests retain transparent rows, mirrored pixels, 255 aliases to a valid loop, valid 1,024/2,048/8,000-byte resources, a small-map success with medium/large pools exhausted, and a true map-allocation failure. The 12-loop/96-cel load workload retains its original 18,261,833-average and 18,266,971-worst-cycle baseline. |
+| Production full tick (`fullframe`) | A generated native fixture runs the shared interpreter tick with room drawing, four animated views, a mirrored cel, split sprites, live PSG sound, and the real game IRQ. It checks room and sprite pixels, reports full-tick and phase average/worst cycles, captures IRQ entry gaps, retains a 24,807,573-cycle baseline and 30,000,000-cycle ceiling, and names the next assembly candidate from measured phase costs. |
+| Warm room integration (`integration`) | Twenty script-driven room changes each run the production room and animation ticks, inventory selection/inspect, a real dialog, and active sound replacement. The suite verifies the full room bitmap and warm RAM/VRAM state after each overlay, stale sprite-reference retirement, reserved mouse/inspect sprites, sound IRQ progress, ownership cleanup, and average/worst frame costs. |
 
 These checks use actual production routines, real banked RAM/VRAM and the game IRQ; no game assets or manually prepared files are required. The banked-copy suite and product build remain part of final verification. Interactive visual and audio playthroughs remain separate from these deterministic native cases.
 
@@ -78,7 +100,7 @@ Three repeatable workloads retain measured baselines and cycle ceilings:
 
 The runner requires `flock` and serializes compilation and emulator execution within this output tree. The `readerfilename` group also builds a permanent C fixture helper with `INVENTORY_TEST_HOST_CC` (default `cc`), because target file creation cannot create the built-in long sprite-debug filename. Its files stay inside the unique case directory. That case verifies the actual long-name payload and rejects names beyond the 251-byte filename limit before appending `,S,R`. This emulator's HostFS cannot supply the payload at the full 255-byte SETNAM boundary; the raw boundary probe reports that limitation explicitly, while oversized-name rejection remains unconditional.
 
-Rerun any new group with the command at the top and `INVENTORY_TEST_CASE=readerfilename`, `readerdir`, `readerobject`, `readerwords`, `readerdebug`, `menustorage`, `textlayout`, `textoverlay`, `scriptstrings`, `scriptstream`, or `graphicsapi`. These native checks cover pixels, ownership, interpreter continuation and CPU cost; manual game visuals and audible playback remain outside their scope.
+Rerun any new group with the command at the top and `INVENTORY_TEST_CASE=readerfilename`, `readerdir`, `readerobject`, `readerwords`, `readerdebug`, `menustorage`, `textlayout`, `textoverlay`, `scriptstrings`, `scriptstream`, `graphicsapi`, `fullframe`, or `integration`. These native checks cover pixels, ownership, interpreter continuation and CPU cost; manual game visuals and audible playback remain outside their scope.
 
 Final campaign validation passed all 26 inventory images, the banked-copy suite and the product build. IRQ, menu-storage and sound-pool test helpers were placed in existing banks to keep every image within the unchanged linker limits. Deliberate compiler failures in both suites also removed their fixture directories; final inspection found no `case.*` directories or product-root runtime inputs.
 
@@ -92,7 +114,7 @@ Focused rerun using the verified local tools:
 
 ```sh
 make test-inventory INVENTORY_TEST_CASE=backbuffer \
-  INVENTORY_TEST_CC=/home/arbitrator/tools/cc65-latest/bin/cl65 \
+  INVENTORY_TEST_CC=/home/arbitrator/Documents/1-Projects/CX16Agi/.tools/cc65-latest/bin/cl65 \
   INVENTORY_TEST_EMU=/home/arbitrator/Documents/1-Projects/CX16Agi-NEEDS-MERGING/cx16emu/x16emu \
   INVENTORY_TEST_ROM=/home/arbitrator/Documents/1-Projects/CX16Agi-NEEDS-MERGING/cx16emu/rom.bin
 ```
