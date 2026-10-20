@@ -18,7 +18,13 @@ Built-in art resolves numeric OBJECT entries by their banked names; it does not 
 
 Final verification passed all 30 inventory images (`obj/cx16/tests/inventory/root-full-matrix-complete.log`), the banked-copy suite and the product build. Test helpers were relocated within the existing fixed-memory and bank limits; no assertions or product linker limits were relaxed. Both suites also cleaned their unique fixtures after deliberately failing compiler invocations. Final inspection found no `case.*` directories or leftover runtime inputs.
 
-Rerun a focused case by replacing `fullframe` in this command with `views`, `viewaliases`, `showobj`, `textoverlay`, `scriptstream`, `scriptstrings`, or `integration`:
+The related palette audit (`render20`) reproduced `DISTINCT TEXT COLOR PAIRS SHARED A PALETTE OWNER`: foreground/background pairs `(1,1)` and `(2,0)` collided because addition bound more tightly than the original shift expression. The cache now packs the two colour nibbles explicitly. The permanent case checks distinct owners, actual VRAM colours and reuse of an existing pair, restoring the palette and current text colours afterward.
+
+The subsequent rerun exposed insufficient wall-time budgets: the unchanged full-frame case repeatedly exceeded 90 seconds, then passed in 105.47 seconds with a 180-second allowance (`luna-fullframe-180.log` and `luna-fullframe-180.time`). Its worst tick remained 24,718,367 guest cycles. The unchanged inventory case also exceeded its old 60-second cap, passing in 84.35 seconds (`luna-inventory-180.log` and `luna-inventory-180.time`). Every image runs that common inventory prelude, so the runner now permits 180 seconds per image. The 30,000,000-cycle tick ceiling, IRQ-gap limits and pixel assertions are unchanged.
+
+The related review's final matrix passed all 30 images (`obj/cx16/tests/inventory/root-related-audit-matrix-180.log`), including the palette regression, backbuffer stress, full-frame benchmark, integration sequence, row-limited overlays and malformed RLE cases. The product build and banked-copy suite also passed. Deliberately failing compiler invocations returned failure in both suites and left no case directories; final inspection also found no leftover runtime inputs or product-root fixtures.
+
+Rerun a focused case by replacing `fullframe` in this command with `views`, `viewaliases`, `showobj`, `textoverlay`, `scriptstream`, `scriptstrings`, `render20`, or `integration`:
 
 ```sh
 make test-inventory INVENTORY_TEST_CASE=fullframe \
