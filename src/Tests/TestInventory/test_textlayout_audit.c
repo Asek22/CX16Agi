@@ -6,6 +6,7 @@ void textlayoutAuditBankedCases(void);
 #pragma wrapped-call (pop)
 
 #pragma code-name (push, "BANKRAM01")
+#pragma code-name (push, "CODE")
 static unsigned long tileAddress(byte row, byte column)
 {
 	return MAPBASE + (unsigned long)row * TILE_LAYER_BYTES_PER_ROW + (unsigned long)column * BYTES_PER_CELL;
@@ -180,6 +181,8 @@ static void shortUnwrappedMultilineCentering(void)
 		"short unwrapped multiline box was centered as a single line");
 	auditCheck(b10BankedDealloc(message, bank), "multiline centering fixture release failed");
 }
+
+#pragma code-name (pop)
 
 void textlayoutAuditBankedCases(void)
 {
