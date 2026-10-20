@@ -7,7 +7,7 @@ INVENTORY_TEST_ROOT := src/Tests/TestInventory
 INVENTORY_TEST_OUT := $(TARGETOBJDIR)/tests/inventory
 
 .PHONY: test-inventory
-# The full-frame case takes 105s wall time on the emulator while its guest cycle limits pass.
+# Inventory and full-frame cases exceed the old 60/90s emulator bounds with guest checks passing.
 ifeq ($(INVENTORY_TEST_CASE),all)
 test-inventory:
 	@set -eu; for selected in inventory $(patsubst $(INVENTORY_TEST_ROOT)/test_%_audit.c,%,$(wildcard $(INVENTORY_TEST_ROOT)/test_*_audit.c)); do \
@@ -22,10 +22,7 @@ test-inventory:
 	if [ "$(INVENTORY_TEST_CASE)" = views ] || [ "$(INVENTORY_TEST_CASE)" = viewaliases ]; then case_flags="$$case_flags -D INVENTORY_TEST_VIEW_RLE"; fi; \
 	case_dir=$$(mktemp -d $(INVENTORY_TEST_OUT)/case.XXXXXX); \
 	trap 'if [ -d "$$case_dir" ]; then rm -r -- "$$case_dir"; fi' EXIT HUP INT TERM; \
-	timeout_seconds=60; \
-	if [ "$(INVENTORY_TEST_CASE)" = views ] || [ "$(INVENTORY_TEST_CASE)" = viewaliases ] || [ "$(INVENTORY_TEST_CASE)" = showobj ]; then timeout_seconds=90; fi; \
-	if [ "$(INVENTORY_TEST_CASE)" = fullframe ]; then timeout_seconds=180; fi; \
-	if [ "$(INVENTORY_TEST_CASE)" = integration ]; then timeout_seconds=180; fi; \
+	timeout_seconds=180; \
 	mkdir "$$case_dir/objects"; \
 	for source in src/*.c; do \
 	  name=$$(basename "$$source" .c); \
